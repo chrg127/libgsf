@@ -2,7 +2,7 @@ CC=gcc
 CPP=g++
 LD=$(CPP)
 
-CFLAGS=-DLINUX -I./VBA -DVERSION_STR=\"0.07\" -DHA_VERSION_STR=\"0.11\" -I./libresample-0.1.3/include -O3 -DC_CORE
+CFLAGS=-DLINUX -I./VBA -DVERSION_STR=\"0.07\" -DHA_VERSION_STR=\"0.11\" -I./libresample-0.1.3/include -O3 -DC_CORE -g
 CXXFLAGS=-g -O2
 LDFLAGS=-lz -lresample -L./libresample-0.1.3 -lao
 

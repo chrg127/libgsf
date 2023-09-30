@@ -602,14 +602,13 @@ GSF_FILE decompressGSF(const char * file, int libnum=1)
     unsigned int ccrc;
     unsigned long decompsize=12;
 	unsigned int tmpval;
-	FILE *f;
 	memset(gsffile.psftag,0,sizeof(gsffile.psftag));
 	gsffile.program=NULL;
 	gsffile.reserved=NULL;
 	memset(gsffile.libname,0,sizeof(gsffile.libname));
 	gsffile.gsfloaded = false;
 	
-	f=fopen(file,"rb");
+	FILE *f=fopen(file,"rb");
 	 
      if(f==NULL) {
 #ifdef LINUX
