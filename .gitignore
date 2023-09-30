@@ -3,3 +3,4 @@ Makefile
 playgsf
 *.log
 libresample-0.1.3/config.status
+build

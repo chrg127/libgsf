@@ -2,8 +2,6 @@
 #include "./VBA/Sound.h"
 #include "./VBA/Util.h"
 #include "./VBA/GBA.h"
-
-
 #include "./VBA/unzip.h"
 
 #include <string.h>
