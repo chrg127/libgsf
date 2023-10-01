@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include "VBA/System.h"
 #include "VBA/Sound.h"
 #include "VBA/Util.h"
@@ -12,11 +13,6 @@
 
 #ifndef PLATFORM_LINUX
     #include <windows.h>
-#endif
-
-#ifdef PLATFORM_LINUX
-    #include <stdarg.h>
-    #include "types.h"
 #endif
 
 int emulating = 0;

@@ -10,9 +10,6 @@
 #include <sys/time.h>
 #include <time.h>
 
-
-#include "types.h"
-
 extern "C" {
 #include "VBA/psftag.h"
 #include "gsf.h"
