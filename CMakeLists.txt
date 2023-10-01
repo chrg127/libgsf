@@ -4,14 +4,14 @@ project(playgsf)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include_directories(libresample-0.1.3/include)
+include_directories(external/libresample/include)
+
+add_compile_definitions(LINUX)
+add_compile_definitions(C_CORE)
 
 add_executable(playgsf
     src/gsf.cpp
     src/linuxmain.cpp
-    src/loadpic.cpp
-    src/main.c
-
     src/VBA/bios.cpp
     src/VBA/GBA.cpp
     src/VBA/getopt1.c
@@ -23,3 +23,5 @@ add_executable(playgsf
     src/VBA/unzip.cpp
     src/VBA/Util.cpp
 )
+
+target_link_libraries(playgsf z ao ${CMAKE_SOURCE_DIR}/external/libresample/lib/libresample.a)

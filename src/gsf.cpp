@@ -1,19 +1,22 @@
-#include "./VBA/System.h"
-#include "./VBA/Sound.h"
-#include "./VBA/Util.h"
-#include "./VBA/GBA.h"
-#include "./VBA/unzip.h"
-
-#include <string.h>
-
-#ifndef LINUX
-#include <windows.h>
-#endif
 #include <stdio.h>
+#include <string.h>
+#include "VBA/System.h"
+#include "VBA/Sound.h"
+#include "VBA/Util.h"
+#include "VBA/GBA.h"
+#include "VBA/unzip.h"
 
-#ifdef LINUX
-#include <stdarg.h>
-#include "types.h"
+#if defined(linux) || defined(__linux__)
+    #define PLATFORM_LINUX
+#endif
+
+#ifndef PLATFORM_LINUX
+    #include <windows.h>
+#endif
+
+#ifdef PLATFORM_LINUX
+    #include <stdarg.h>
+    #include "types.h"
 #endif
 
 int emulating = 0;
@@ -79,7 +82,7 @@ void DisplayError (char * Message, ...) {
 	va_start( ap, Message );
 	vsprintf( Msg, Message, ap );
 	va_end( ap );
-#ifndef LINUX
+#ifndef PLATFORM_LINUX
 	MessageBox(NULL,Msg,"Error",MB_OK|MB_ICONERROR|MB_SETFOREGROUND);
 #else
 	fprintf(stderr, "%s\n", Message);
@@ -191,28 +194,26 @@ void GSFClose(void)
 
 #define EMU_COUNT 250000
 
-BOOL EmulationLoop(void) 
+bool EmulationLoop(void) 
 {
   if(emulating /*&& !paused*/) {
     for(int i = 0; i < 2; i++) {
 		CPULoop(EMU_COUNT);
  
-	    return TRUE;
+	    return true;
 	}
   }
-  return FALSE;
+  return false;
 
 }
 
 
-BOOL IsValidGSF ( BYTE Test[4] ) {
-	if ( *((DWORD *)&Test[0]) == 0x22465350 ) { return TRUE; }
-	return FALSE;
+bool IsValidGSF(unsigned char Test[4]) {
+	return ( *((unsigned *)&Test[0]) == 0x22465350 );
 }
 
-BOOL IsTagPresent ( BYTE Test[5] ) {
-	if ( *((DWORD *)&Test[0]) == 0x4741545b && Test[4]==0x5D) {return TRUE;}
-	return FALSE;
+bool IsTagPresent(unsigned char Test[5]) {
+	return ( *((unsigned *)&Test[0]) == 0x4741545b && Test[4]==0x5D);
 }
 
 

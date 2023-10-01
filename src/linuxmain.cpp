@@ -18,6 +18,9 @@ extern "C" {
 #include "gsf.h"
 }
 
+#define HA_VERSION_STR "0.11"
+#define VERSION_STR "0.07"
+
 extern "C" { 
 int defvolume=1000;
 int relvolume=1000;
