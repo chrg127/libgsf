@@ -1,13 +1,11 @@
-cmake_minimum_required(VERSION 3.6)
-project(playgsf)
+cmake_minimum_required(VERSION 3.14)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(playgsf VERSION 1.0 LANGUAGES C CXX)
 
-include_directories(external/libresample/include)
+include(CMakePackageConfigHelpers)
 
-add_compile_definitions(LINUX)
-add_compile_definitions(C_CORE)
+# add_subdirectory(external EXCLUDE_FROM_ALL)
+add_subdirectory(external/libresample-cmake EXCLUDE_FROM_ALL)
 
 add_executable(playgsf
     src/gsf.cpp
@@ -24,4 +22,20 @@ add_executable(playgsf
     src/VBA/Util.cpp
 )
 
-target_link_libraries(playgsf z ao ${CMAKE_SOURCE_DIR}/external/libresample/lib/libresample.a)
+target_compile_features(playgsf PRIVATE cxx_std_20)
+
+# target_include_directories(playgsf PRIVATE external/libresample/include)
+
+target_compile_definitions(playgsf
+    PRIVATE
+        LINUX
+        C_CORE
+)
+
+target_link_libraries(playgsf
+    PRIVATE
+        z   # zlib
+        ao
+        resample
+        # ${CMAKE_SOURCE_DIR}/external/libresample/lib/libresample.so
+)
