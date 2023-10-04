@@ -8,7 +8,6 @@ include(CMakePackageConfigHelpers)
 add_subdirectory(external/libresample-cmake EXCLUDE_FROM_ALL)
 
 add_executable(playgsf
-    src/gsf.cpp
     src/linuxmain.cpp
     src/VBA/bios.cpp
     src/VBA/GBA.cpp

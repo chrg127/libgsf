@@ -4,60 +4,13 @@
 //
 /////////////////////////////////////////////////////////////////////////////
 
+#include "psftag.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include "psftag.h"
-
-/////////////////////////////////////////////////////////////////////////////
-
-//#if defined(__WIN32__)
-
-#ifdef LINUX
-// #include "../types.h"
-#else
-#include <windows.h>
-#endif
-/*
-void DisplayError (char * Message, ...) {
-	char Msg[400];
-	va_list ap;
-
-	va_start( ap, Message );
-	vsprintf( Msg, Message, ap );
-	va_end( ap );
-	MessageBox(NULL,Msg,"Error",MB_OK|MB_ICONERROR|MB_SETFOREGROUND);
-	//SetActiveWindow(hMainWindow);
-}
-*/
-
-#if 0
-static void truncate(const char *filename, long size) {
-	/*
-  HANDLE f = CreateFile(
-    filename,
-    GENERIC_WRITE,
-    FILE_SHARE_READ,
-    NULL,
-    OPEN_EXISTING,
-    FILE_ATTRIBUTE_NORMAL,
-    NULL
-  );
-  if(f == INVALID_HANDLE_VALUE) return;
-
-  SetFilePointer(f, size, NULL, FILE_BEGIN);
-  if(GetLastError() == NO_ERROR) SetEndOfFile(f);
-  CloseHandle(f);*/
-}
-#endif
-
-//#else
-//
-//#include <unistd.h>
-//
-//#endif
+#include <errno.h>
 
 /////////////////////////////////////////////////////////////////////////////
 /*
@@ -214,39 +167,25 @@ int psftag_raw_getvar(
   // Safety check
   //
   if(value_out_size < 1) return -1;
-  /*
-  ** Default to empty string
-  */
+  /* ** Default to empty string */
   *v = 0;
-  /*
-  ** Find the variable start/end index
-  */
+  /* ** Find the variable start/end index */
   i = find_tag_var_start(tag, variable);
   if(i < 0) return -1;
   i_end = i + find_tag_var_end(tag + i);
-  /*
-  ** Extract the variable data
-  */
+  /* ** Extract the variable data */
   while(i < i_end) {
-    /*
-    ** Skip to first '='
-    */
+    /* ** Skip to first '=' */
     while((tag[i] != '=') && (i < i_end)) { i++; }
     if(i >= i_end) break;
-    /*
-    ** If this is not the first line, add a newline
-    */
+    /* ** If this is not the first line, add a newline */
     if(v > value_out) { 
       if(v < vmax) { *v++ = 0x0A; }
     }
-    /*
-    ** Now that we're at a '=', skip past it
-    */
+    /* ** Now that we're at a '=', skip past it */
     i++;
     if(i >= i_end) break;
-    /*
-    ** Skip past any whitespace except newlines
-    */
+    /* ** Skip past any whitespace except newlines */
     for(; i < i_end; i++) {
       unsigned u = ((unsigned)(tag[i])) & 0xFF;
       if(u == 0x0A) break;
@@ -254,25 +193,19 @@ int psftag_raw_getvar(
       break;
     }
     if(i >= i_end) break;
-    /*
-    ** Consume line data
-    */
+    /* ** Consume line data */
     v_linebegin = v;
     while(i < i_end) {
       unsigned u = ((unsigned)(tag[i++])) & 0xFF;
       if(u == 0x0A) break;
       if(v < vmax) { *v++ = u; }
     }
-    /*
-    ** Eat end-of-line whitespace
-    */
+    /* ** Eat end-of-line whitespace */
     while(v > v_linebegin && (((unsigned)(v[-1]))&0xFF) <= 0x20) {
       v--;
     }
   }
-  /*
-  ** Set variable end
-  */
+  /* ** Set variable end */
   if(v >= vmax) { v = vmax - 1; }
   *v = 0;
   return 0;
@@ -394,25 +327,32 @@ void psftag_raw_setvar(
 
 struct PSFTAG {
   char str[TAGMAX + 1];
+  char *errorstring;
 };
 
-/*void *psftag_create(void) {
+void *psftag_create(void) {
   struct PSFTAG *p = malloc(sizeof(struct PSFTAG));
   if(!p) return NULL;
   p->str[0] = 0;
-  //p->errorstring[0] = 0;
+  p->errorstring = malloc(ERRORMAX);
+  if (!p->errorstring) {
+      free(p);
+      return NULL;
+  }
+  p->errorstring[0] = 0;
   return p;
 }
 
 void psftag_delete(void *psftag) {
+  free(((struct PSFTAG *) psftag)->errorstring);
   free(psftag);
-}*/
+}
 
 /////////////////////////////////////////////////////////////////////////////
 
-/*const char *psftag_getlasterror(void *psftag) {
+const char *psftag_getlasterror(void *psftag) {
   return ((struct PSFTAG*)psftag)->errorstring;
-}*/
+}
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -448,8 +388,8 @@ int psftag_readfromfile(void *psftag, const char *path) {
 
   f = fopen(path, "rb");
   if(!f) {
-    //strncpy(t->errorstring, strerror(errno), ERRORMAX);
-    //t->errorstring[ERRORMAX-1] = 0;
+    strncpy(t->errorstring, strerror(errno), ERRORMAX);
+    t->errorstring[ERRORMAX-1] = 0;
     return -1;
   }
 
@@ -489,10 +429,10 @@ int psftag_readfromfile(void *psftag, const char *path) {
   return 0;
 
 invalidformat:
-//  strcpy(t->errorstring, "Invalid file format");
+  strcpy(t->errorstring, "Invalid file format");
   goto error;
 notpresent:
-//  strcpy(t->errorstring, "Tag not present");
+  strcpy(t->errorstring, "Tag not present");
   goto error;
 error:
   if(f) fclose(f);
@@ -510,8 +450,8 @@ int psftag_writetofile(void *psftag, const char *path) {
 
   f = fopen(path, "r+b");
   if(!f) {
-    //strncpy(t->errorstring, strerror(errno), ERRORMAX);
-    //t->errorstring[ERRORMAX-1] = 0;
+    strncpy(t->errorstring, strerror(errno), ERRORMAX);
+    t->errorstring[ERRORMAX-1] = 0;
     return -1;
   }
 
@@ -545,7 +485,7 @@ int psftag_writetofile(void *psftag, const char *path) {
   return 0;
 
 invalidformat:
-//  strcpy(t->errorstring, "Invalid file format");
+  strcpy(t->errorstring, "Invalid file format");
   goto error;
 error:
   if(f) fclose(f);

@@ -3693,38 +3693,3 @@ void CPULoop(int ticks)
     }
   }
 }
-
-struct EmulatedSystem GBASystem = {
-  // emuMain
-  CPULoop,
-  // emuReset
-  CPUReset,
-  // emuCleanUp
-  CPUCleanUp,
-  // emuReadBattery
-  //CPUReadBatteryFile,
-  // emuWriteBattery
-  //CPUWriteBatteryFile,
-  // emuReadState
-  //CPUReadState,
-  // emuWriteState
-  //CPUWriteState,
-  // emuReadMemState
-  //CPUReadMemState,
-  // emuWriteMemState
-  //CPUWriteMemState,
-  // emuWritePNG
-  //CPUWritePNGFile,
-  // emuWriteBMP
-  //CPUWriteBMPFile,
-  // emuUpdateCPSR
-  CPUUpdateCPSR,
-  // emuHasDebugger
-  //true,
-  // emuCount
-#ifdef FINAL_VERSION
-  250000
-#else
-  5000
-#endif
-};
