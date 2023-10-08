@@ -11,12 +11,15 @@
 #include <utility>
 #include <algorithm>
 #include <unordered_map>
+#include <filesystem>
 #include <strings.h>
 #include <zlib.h>
 #include <tl/expected.hpp>
 #include "allocation.hpp"
 
 /* utilities */
+
+namespace fs = std::filesystem;
 
 using u8 = unsigned char;
 using u32 = uint32_t;
@@ -70,6 +73,55 @@ u32 read4(T ptr)
     return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
 }
 
+int default_read_file(const char *filename, unsigned char **buf, long *size)
+{
+    FILE *file = fopen(filename, "rb");
+    if (!file)
+        return 1;
+    fseek(file, 0l, SEEK_END);
+    *size = ftell(file);
+    rewind(file);
+    *buf = (unsigned char *) gsf_malloc(*size * sizeof(unsigned char));
+    // memset(*buf, 0, *size * sizeof(unsigned char));
+    size_t bytes_read = fread(*buf, sizeof(char), *size, file);
+    if (bytes_read < (size_t)*size) {
+        free(*buf);
+        return 1;
+    }
+    fclose(file);
+    return 0;
+}
+
+void default_delete_file_data(unsigned char *buf)
+{
+    gsf_free(buf);
+}
+
+GsfReadFn read_file_fn = default_read_file;
+GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
+
+template <typename T, typename Deleter = std::default_delete<T>>
+struct ManagedBuffer {
+    std::unique_ptr<T[], Deleter> ptr;
+    std::size_t size;
+    std::span<      T> to_span()       { return std::span<T>(ptr.get(), size); }
+    std::span<const T> to_span() const { return std::span<T>(ptr.get(), size); }
+};
+
+auto read_file(fs::path filepath)
+    -> tl::expected<ManagedBuffer<u8, GsfDeleteFileDataFn>, int>
+{
+    u8 *buf;
+    long size;
+    auto err = read_file_fn(filepath.string().c_str(), &buf, &size);
+    if (err != 0)
+        return tl::unexpected(err);
+    return ManagedBuffer {
+        .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_file_data_fn},
+        .size = std::size_t(size),
+    };
+}
+
 
 
 /* allocation */
@@ -77,17 +129,6 @@ u32 read4(T ptr)
 GsfAllocators allocators = {
     malloc, realloc, free
 };
-
-GSF_API void gsf_set_allocators(
-    void *(*malloc_fn)(size_t),
-    void *(*realloc_fn)(void *, size_t),
-    void (*free_fn)(void *)
-)
-{
-    allocators.malloc_fn = malloc_fn;
-    allocators.realloc_fn = realloc_fn;
-    allocators.free_fn = free_fn;
-}
 
 
 
@@ -190,9 +231,12 @@ GSF_API int gsf_new(GsfEmu **out, int frequency)
     return 0;
 }
 
-GSF_API int gsf_load_data(GsfEmu *emu, unsigned char *data, size_t size)
+GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
 {
-    auto result = parse(std::span{data, size});
+    auto data = read_file(fs::path{filename});
+    if (!data)
+        return 1;
+    auto result = parse(data.value().to_span());
     if (!result)
         return 1;
     GSFFile gsf = std::move(result.value());
@@ -218,4 +262,20 @@ GSF_API bool gsf_track_ended(GsfEmu *emu)
 GSF_API void gsf_delete(GsfEmu *emu)
 {
 
+}
+
+GSF_API void gsf_set_allocators(
+    void *(*malloc_fn)(size_t),
+    void *(*realloc_fn)(void *, size_t),
+    void (*free_fn)(void *)
+)
+{
+    allocators.malloc_fn = malloc_fn;
+    allocators.realloc_fn = realloc_fn;
+    allocators.free_fn = free_fn;
+}
+
+GSF_API void gsf_set_file_reader(GsfReadFn fn)
+{
+    read_file_fn = fn;
 }

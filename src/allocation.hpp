@@ -14,7 +14,9 @@ extern GsfAllocators allocators;
 
 inline void *gsf_malloc(size_t size)             { return allocators.malloc_fn(size); }
 inline void *gsf_realloc(void *ptr, size_t size) { return allocators.realloc_fn(ptr, size); }
-inline void gsf_free(void *ptr)                 { allocators.free_fn(ptr); }
+inline void  gsf_free(void *ptr)                 { allocators.free_fn(ptr); }
+
+extern GsfReadFn read_file_fn;
 
 #define GSF_IMPLEMENTS_ALLOCATORS                                           \
 public:                                                                     \

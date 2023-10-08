@@ -37,7 +37,7 @@ bool gsf_is_compatible_dll(void);
 typedef struct GsfEmu GsfEmu;
 
 GSF_API int gsf_new(GsfEmu **out, int frequency);
-GSF_API int gsf_load_data(GsfEmu *emu, unsigned char *data, size_t size);
+GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
 GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size);
 GSF_API bool gsf_track_ended(GsfEmu *emu);
 GSF_API void gsf_delete(GsfEmu *emu);
@@ -48,6 +48,14 @@ GSF_API void gsf_set_allocators(
     void *(*realloc_fn)(void *, size_t),
     void (*free_fn)(void *)
 );
+
+/*
+ * Sets the function used to read files.
+ */
+typedef int (*GsfReadFn)(const char *filename, unsigned char **buf, long *size);
+typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
+
+GSF_API void gsf_set_file_reader(GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn);
 
 #ifdef __cplusplus
 }
