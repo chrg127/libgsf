@@ -11,11 +11,11 @@ extern "C" {
 /* export markers */
 #ifndef GSF_API
     #ifdef _WIN32
-        #if defined(GSF_BUILD_SHARED) /* build dll */
+        #if defined(GSF_BUILD_SHARED)       /* build dll */
             #define GSF_API __declspec(dllexport)
-        #elif !defined(GSF_BUILD_STATIC) /* use dll */
+        #elif !defined(GSF_BUILD_STATIC)    /* use dll */
             #define GSF_API __declspec(dllimport)
-        #else   /* static library */
+        #else                               /* static library */
             #define GSF_API
         #endif
     #else
@@ -41,6 +41,13 @@ GSF_API int gsf_load_data(GsfEmu *emu, unsigned char *data, size_t size);
 GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size);
 GSF_API bool gsf_track_ended(GsfEmu *emu);
 GSF_API void gsf_delete(GsfEmu *emu);
+
+/* memory allocation customization */
+GSF_API void gsf_set_allocators(
+    void *(*malloc_fn)(size_t),
+    void *(*realloc_fn)(void *, size_t),
+    void (*free_fn)(void *)
+);
 
 #ifdef __cplusplus
 }

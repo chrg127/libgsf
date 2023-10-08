@@ -38,3 +38,9 @@ target_link_libraries(playgsf
         resample
         # ${CMAKE_SOURCE_DIR}/external/libresample/lib/libresample.so
 )
+
+
+include_directories(external/expected/include)
+add_executable(libgsf src/libgsf.cpp src/example.c)
+target_compile_features(libgsf PRIVATE cxx_std_20)
+target_link_libraries(libgsf z)
