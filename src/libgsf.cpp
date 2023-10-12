@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <array>
 #include <vector>
@@ -12,60 +13,47 @@
 #include <algorithm>
 #include <unordered_map>
 #include <filesystem>
+#include <optional>
 #include <strings.h>
 #include <zlib.h>
 #include <tl/expected.hpp>
 #include "allocation.hpp"
+#include "string.hpp"
 
 /* utilities */
 
 namespace fs = std::filesystem;
 
+constexpr int MAX_LIBS = 11;
+
 using u8 = unsigned char;
 using u32 = uint32_t;
-
-template <typename T>
-using Vector = std::vector<T, GsfAllocator<T>>;
-
+template <typename T> using Vector = std::vector<T, GsfAllocator<T>>;
 using String = std::basic_string<char, std::char_traits<char>, GsfAllocator<char>>;
+template <typename T> using Result = tl::expected<T, int>;
 
-bool casecmp(const char *a, const char *b, size_t n)
+template <typename T, typename... Args>
+constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(Args&&... args)
 {
-    return strncasecmp(a, b, n) == 0;
+    auto *p = gsf_malloc(sizeof(T));
+    return std::unique_ptr<T, void (*)(void *)>{new (p) T(std::forward<Args>(args)...), gsf_free};
 }
 
-struct CaseCmpStruct {
+template <typename T, typename... Args>
+constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(std::size_t size)
+{
+    auto *p = gsf_malloc(sizeof(T) * size);
+    return std::unique_ptr<T, void (*)(void *)>(new (p) std::remove_extent_t<T>[size](), gsf_free);
+}
+
+struct InsensitiveCompare {
     constexpr bool operator()(const String &lhs, const String &rhs) const
     {
-        return lhs.size() != rhs.size()
-            && casecmp(lhs.data(), rhs.data(), lhs.size());
+        return lhs.size() == rhs.size() && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 };
 
-using TagMap = std::unordered_map<String, String, std::hash<String>, CaseCmpStruct>;
-
-inline bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
-
-template <typename T = std::string>
-inline void split(const T &s, char delim, auto &&fn)
-{
-    for (std::size_t i = 0, p = 0; i != s.size(); i = p+1) {
-        p = s.find(delim, i);
-        fn(s.substr(i, (p == s.npos ? s.size() : p) - i));
-        if (p == s.npos)
-            break;
-    }
-}
-
-template <typename From = std::string, typename To = std::string>
-inline To trim(const From &s)
-{
-    auto i = std::find_if_not(s.begin(),  s.end(),  is_space);
-    auto j = std::find_if_not(s.rbegin(), s.rend(), is_space).base();
-    return {i, j};
-}
-
-inline std::string_view trim_view(std::string_view s) { return trim<std::string_view, std::string_view>(s); }
+using TagMap = std::unordered_map<String, String, std::hash<String>, InsensitiveCompare>;
 
 template <typename T>
 u32 read4(T ptr)
@@ -108,8 +96,7 @@ struct ManagedBuffer {
     std::span<const T> to_span() const { return std::span<T>(ptr.get(), size); }
 };
 
-auto read_file(fs::path filepath)
-    -> tl::expected<ManagedBuffer<u8, GsfDeleteFileDataFn>, int>
+Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath)
 {
     u8 *buf;
     long size;
@@ -141,12 +128,18 @@ struct Rom {
 };
 
 struct GSFFile {
-    std::span<u8> reserved;
+    // std::span<u8> reserved;
     Rom rom;
     TagMap tags;
+
+    void impose(const GSFFile &f)
+    {
+        std::copy(f.rom.data.begin(), f.rom.data.end(),
+                    rom.data.begin() + (f.rom.offset & 0x01FFFFFF));
+    }
 };
 
-tl::expected<Rom, int> uncompress_rom(std::span<u8> data, u32 crc)
+Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
 {
     if (crc != crc32(crc32(0l, nullptr, 0), data.data(), data.size()))
         return tl::unexpected(0);
@@ -160,6 +153,7 @@ tl::expected<Rom, int> uncompress_rom(std::span<u8> data, u32 crc)
     auto uncompressed = Vector<u8>(size, 0);
     if (uncompress(uncompressed.data(), &size, data.data(), data.size()) != Z_OK)
         return tl::unexpected(0);
+    uncompressed.erase(uncompressed.begin(), uncompressed.begin() + 12);
     return Rom {
         .entry_point = read4(&tmp[0]),
         .offset      = read4(&tmp[4]),
@@ -170,17 +164,17 @@ tl::expected<Rom, int> uncompress_rom(std::span<u8> data, u32 crc)
 TagMap parse_tags(std::string_view tags)
 {
     TagMap result;
-    split(tags, '\n', [&] (std::string_view tag) {
+    string::split(tags, '\n', [&] (std::string_view tag) {
         auto equals = tag.find('=');
-        auto first = trim_view(tag.substr(0, equals));
-        auto second = trim_view(tag.substr(equals + 1, tag.size()));
-        /* currently lacking multiline variables. */
+        auto first = string::trim_view(tag.substr(0, equals));
+        auto second = string::trim_view(tag.substr(equals + 1, tag.size()));
+        // currently lacking multiline variables
         result[String(first)] = String(second);
     });
     return result;
 }
 
-tl::expected<GSFFile, int> parse(std::span<u8> data, int libnum = 1)
+Result<GSFFile> parse(std::span<u8> data)
 {
     if (data.size() < 0x10 || data.size() > 0x4000000)
         return tl::unexpected(0);
@@ -193,18 +187,61 @@ tl::expected<GSFFile, int> parse(std::span<u8> data, int libnum = 1)
     u32 crc             = read4(readb(4));
     if (reserved_length + program_length + 16 > data.size())
         return tl::unexpected(0);
-    auto reserved = readb(reserved_length);
+    // auto reserved = readb(reserved_length);
     auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};
     if (!rom)
         return tl::unexpected(rom.error());
-    auto tags = casecmp((const char *)readb(5).data(), "[TAG]", 5)
+    auto tags = std::memcmp(readb(5).data(), "[TAG]", 5) == 0
               ? readb(std::min<size_t>(data.size() - cursor, 50000u))
               : std::span<u8>{};
     return GSFFile {
-        .reserved = reserved,
+        // .reserved = reserved,
         .rom = std::move(rom.value()),
         .tags = parse_tags(std::string_view((char *) tags.data(), tags.size())),
     };
+}
+
+Result<GSFFile> parsebuf(ManagedBuffer<u8, GsfDeleteFileDataFn> &&buf) { return parse(buf.to_span()); }
+
+std::optional<String> find_lib(std::span<GSFFile> files, int n)
+{
+    auto key = String("_lib") + string::from_number<String>(n);
+    for (auto &f : files)
+        if (auto p = f.tags.find(key); p != f.tags.end())
+            return p->second;
+    return std::nullopt;
+}
+
+Result<GSFFile> load_file(fs::path filepath)
+{
+    std::array<GSFFile, MAX_LIBS> files;
+    if (auto r = read_file(filepath)
+                .and_then(parsebuf)
+                .map([&] (GSFFile &&f) { files[0] = std::move(f); }); !r)
+        return tl::unexpected(r.error());
+    if (auto tag = files[0].tags.find("_lib"); tag != files[0].tags.end()) {
+        if (auto r = read_file(filepath.parent_path() / tag->second)
+                    .and_then(parsebuf)
+                    .map([&] (GSFFile &&f) {
+                        files[1] = std::move(f);
+                        files[1].impose(files[0]);
+                        std::swap(files[1].rom.data, files[0].rom.data);
+                    }); !r)
+            return tl::unexpected(r.error());
+        for (auto i = 2; i < MAX_LIBS; i++) {
+            auto libname = find_lib(std::span{files.begin(), files.begin() + i}, i);
+            if (!libname)
+                break;
+            if (auto r = read_file(filepath.parent_path() / libname.value())
+                        .and_then(parsebuf)
+                        .map([&] (GSFFile &&f) {
+                            files[i] = std::move(f);
+                            files[0].impose(files[i]);
+                        }); !r)
+                return tl::unexpected(r.error());
+        }
+    }
+    return files[0];
 }
 
 
@@ -233,19 +270,13 @@ GSF_API int gsf_new(GsfEmu **out, int frequency)
 
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
 {
-    auto data = read_file(fs::path{filename});
-    if (!data)
-        return 1;
-    auto result = parse(data.value().to_span());
-    if (!result)
-        return 1;
-    GSFFile gsf = std::move(result.value());
-    printf("rom size = %d\n", gsf.rom.data.size());
-    printf("entry point = %0X\n", gsf.rom.entry_point);
-    printf("offset = %0X\n", gsf.rom.offset);
-    for (auto &[k, v] : gsf.tags) {
-        printf("tag: %s = %s\n", k.c_str(), v.c_str());
-    }
+    auto f = load_file(fs::path{filename})
+        .map([&] (GSFFile &&f) {
+            printf("entry point = %X\n", f.rom.entry_point);
+            printf("size of rom = %d\n", f.rom.data.size());
+        });
+    if (!f)
+        return f.error();
     return 0;
 }
 
