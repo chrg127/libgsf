@@ -8,17 +8,17 @@ include(CMakePackageConfigHelpers)
 add_subdirectory(external/libresample-cmake EXCLUDE_FROM_ALL)
 
 add_executable(playgsf
-    src/linuxmain.cpp
-    src/VBA/bios.cpp
-    src/VBA/GBA.cpp
-    src/VBA/getopt1.c
-    src/VBA/Globals.cpp
-    src/VBA/memgzio.c
-    src/VBA/psftag.c
-    src/VBA/snd_interp.cpp
-    src/VBA/Sound.cpp
-    src/VBA/unzip.cpp
-    src/VBA/Util.cpp
+    playgsf-src/linuxmain.cpp
+    playgsf-src/VBA/bios.cpp
+    playgsf-src/VBA/GBA.cpp
+    playgsf-src/VBA/getopt1.c
+    playgsf-src/VBA/Globals.cpp
+    playgsf-src/VBA/memgzio.c
+    playgsf-src/VBA/psftag.c
+    playgsf-src/VBA/snd_interp.cpp
+    playgsf-src/VBA/Sound.cpp
+    playgsf-src/VBA/unzip.cpp
+    playgsf-src/VBA/Util.cpp
 )
 
 target_compile_features(playgsf PRIVATE cxx_std_20)
