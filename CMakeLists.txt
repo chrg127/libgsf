@@ -1,46 +1,98 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(playgsf VERSION 1.0 LANGUAGES C CXX)
+project(libgsf VERSION 1.0 LANGUAGES C CXX)
 
 include(CMakePackageConfigHelpers)
 
-# add_subdirectory(external EXCLUDE_FROM_ALL)
-add_subdirectory(external/libresample-cmake EXCLUDE_FROM_ALL)
+# playgsf
 
-add_executable(playgsf
-    playgsf-src/linuxmain.cpp
-    playgsf-src/VBA/bios.cpp
-    playgsf-src/VBA/GBA.cpp
-    playgsf-src/VBA/getopt1.c
-    playgsf-src/VBA/Globals.cpp
-    playgsf-src/VBA/memgzio.c
-    playgsf-src/VBA/psftag.c
-    playgsf-src/VBA/snd_interp.cpp
-    playgsf-src/VBA/Sound.cpp
-    playgsf-src/VBA/unzip.cpp
-    playgsf-src/VBA/Util.cpp
+# add_subdirectory(external/libresample-cmake EXCLUDE_FROM_ALL)
+
+# add_executable(playgsf
+#     playgsf-src/linuxmain.cpp
+#     playgsf-src/VBA/bios.cpp
+#     playgsf-src/VBA/GBA.cpp
+#     playgsf-src/VBA/getopt1.c
+#     playgsf-src/VBA/Globals.cpp
+#     playgsf-src/VBA/memgzio.c
+#     playgsf-src/VBA/psftag.c
+#     playgsf-src/VBA/snd_interp.cpp
+#     playgsf-src/VBA/Sound.cpp
+#     playgsf-src/VBA/unzip.cpp
+#     playgsf-src/VBA/Util.cpp
+# )
+
+# target_compile_features(playgsf PRIVATE cxx_std_20)
+
+# target_compile_definitions(playgsf
+#     PRIVATE
+#         LINUX
+#         C_CORE
+# )
+
+# target_link_libraries(playgsf
+#     PRIVATE
+#         z   # zlib
+#         ao
+#         resample
+# )
+
+# libgsf
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/mgba/src/platform/cmake/")
+
+add_subdirectory(external/mgba/src/arm EXCLUDE_FROM_ALL)
+# add_subdirectory(external/mgba/src/gb EXCLUDE_FROM_ALL)
+# add_subdirectory(external/mgba/src/sm83 EXCLUDE_FROM_ALL)
+add_subdirectory(external/mgba/src/core EXCLUDE_FROM_ALL)
+add_subdirectory(external/mgba/src/gba EXCLUDE_FROM_ALL)
+add_subdirectory(external/mgba/src/util EXCLUDE_FROM_ALL)
+file(GLOB OS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/platform/posix/*.c)
+file(GLOB THIRD_PARTY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/third-party/inih/*.c)
+set(CORE_VFS_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/util/vfs/vfs-mem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/util/vfs/vfs-fifo.c
+)
+list(APPEND CORE_VFS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/util/vfs/vfs-fd.c ${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/util/vfs/vfs-dirent.c)
+set(GIT_REV -1)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/core/version.c.in ${CMAKE_CURRENT_BINARY_DIR}/external/mgba/version.c)
+list(APPEND UTIL_SRC ${CMAKE_CURRENT_BINARY_DIR}/external/mgba/version.c)
+
+message("third party src = " ${THIRD_PARTY_SRC})
+
+
+add_executable(libgsf
+    src/libgsf.cpp
+    src/example.c
+    ${ARM_SRC}
+    ${GBA_SRC}
+    # ${GBA_EXTRA_SRC}
+    ${CORE_SRC}
+    ${UTIL_SRC}
+    ${OS_SRC}
+    ${CORE_VFS_SRC}
+    ${THIRD_PARTY_SRC}
+    external/mgba/src/third-party/blip_buf/blip_buf.c
 )
 
-target_compile_features(playgsf PRIVATE cxx_std_20)
-
-# target_include_directories(playgsf PRIVATE external/libresample/include)
-
-target_compile_definitions(playgsf
+target_compile_definitions(libgsf
     PRIVATE
-        LINUX
-        C_CORE
+        HAVE_LOCALE
+        MINIMAL_CORE
 )
 
-target_link_libraries(playgsf
+target_include_directories(libgsf
     PRIVATE
-        z   # zlib
-        ao
-        resample
-        # ${CMAKE_SOURCE_DIR}/external/libresample/lib/libresample.so
+        external/expected/include
+        external/mgba/include
+        external/mgba/src
 )
 
+target_compile_features(libgsf
+    PRIVATE
+        cxx_std_20
+)
 
-include_directories(external/expected/include)
-add_executable(libgsf src/libgsf.cpp src/example.c)
-target_compile_features(libgsf PRIVATE cxx_std_20)
-target_link_libraries(libgsf z)
+target_link_libraries(libgsf
+    z
+)

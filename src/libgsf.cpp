@@ -17,6 +17,10 @@
 #include <strings.h>
 #include <zlib.h>
 #include <tl/expected.hpp>
+#include <mgba/gba/core.h>
+#include <mgba/core/core.h>
+#include <mgba/core/blip_buf.h>
+#include <mgba-util/vfs.h>
 #include "allocation.hpp"
 #include "string.hpp"
 
@@ -32,19 +36,19 @@ template <typename T> using Vector = std::vector<T, GsfAllocator<T>>;
 using String = std::basic_string<char, std::char_traits<char>, GsfAllocator<char>>;
 template <typename T> using Result = tl::expected<T, int>;
 
-template <typename T, typename... Args>
-constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(Args&&... args)
-{
-    auto *p = gsf_malloc(sizeof(T));
-    return std::unique_ptr<T, void (*)(void *)>{new (p) T(std::forward<Args>(args)...), gsf_free};
-}
+// template <typename T, typename... Args>
+// constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(Args&&... args)
+// {
+//     auto *p = gsf_malloc(sizeof(T));
+//     return std::unique_ptr<T, void (*)(void *)>{new (p) T(std::forward<Args>(args)...), gsf_free};
+// }
 
-template <typename T, typename... Args>
-constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(std::size_t size)
-{
-    auto *p = gsf_malloc(sizeof(T) * size);
-    return std::unique_ptr<T, void (*)(void *)>(new (p) std::remove_extent_t<T>[size](), gsf_free);
-}
+// template <typename T, typename... Args>
+// constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(std::size_t size)
+// {
+//     auto *p = gsf_malloc(sizeof(T) * size);
+//     return std::unique_ptr<T, void (*)(void *)>(new (p) std::remove_extent_t<T>[size](), gsf_free);
+// }
 
 struct InsensitiveCompare {
     constexpr bool operator()(const String &lhs, const String &rhs) const
@@ -73,7 +77,7 @@ int default_read_file(const char *filename, unsigned char **buf, long *size)
     // memset(*buf, 0, *size * sizeof(unsigned char));
     size_t bytes_read = fread(*buf, sizeof(char), *size, file);
     if (bytes_read < (size_t)*size) {
-        free(*buf);
+        gsf_free(*buf);
         return 1;
     }
     fclose(file);
@@ -201,8 +205,6 @@ Result<GSFFile> parse(std::span<u8> data)
     };
 }
 
-Result<GSFFile> parsebuf(ManagedBuffer<u8, GsfDeleteFileDataFn> &&buf) { return parse(buf.to_span()); }
-
 std::optional<String> find_lib(std::span<GSFFile> files, int n)
 {
     auto key = String("_lib") + string::from_number<String>(n);
@@ -214,6 +216,7 @@ std::optional<String> find_lib(std::span<GSFFile> files, int n)
 
 Result<GSFFile> load_file(fs::path filepath)
 {
+    auto parsebuf = [](ManagedBuffer<u8, GsfDeleteFileDataFn> &&buf) { return parse(buf.to_span()); };
     std::array<GSFFile, MAX_LIBS> files;
     if (auto r = read_file(filepath)
                 .and_then(parsebuf)
@@ -260,23 +263,27 @@ bool gsf_is_compatible_dll(void)
 }
 
 struct GsfEmu {
-
+    mCore *core;
 };
 
 GSF_API int gsf_new(GsfEmu **out, int frequency)
 {
+    GsfEmu *emu = static_cast<GsfEmu *>(gsf_malloc(sizeof(GsfEmu)));
+    emu->core = GBACoreCreate();
+    emu->core->init(emu->core);
+    mCoreInitConfig(emu->core, nullptr);
+    *out = emu;
     return 0;
 }
 
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
 {
-    auto f = load_file(fs::path{filename})
-        .map([&] (GSFFile &&f) {
-            printf("entry point = %X\n", f.rom.entry_point);
-            printf("size of rom = %d\n", f.rom.data.size());
-        });
+    auto f = load_file(fs::path{filename});
     if (!f)
         return f.error();
+
+    auto *vmem = VFileMemChunk(f.value().rom.data.data(), f.value().rom.data.size());
+    emu->core->loadROM(emu->core, vmem);
     return 0;
 }
 
@@ -292,7 +299,8 @@ GSF_API bool gsf_track_ended(GsfEmu *emu)
 
 GSF_API void gsf_delete(GsfEmu *emu)
 {
-
+    emu->core->deinit(emu->core);
+    emu->core = nullptr;
 }
 
 GSF_API void gsf_set_allocators(
@@ -306,7 +314,8 @@ GSF_API void gsf_set_allocators(
     allocators.free_fn = free_fn;
 }
 
-GSF_API void gsf_set_file_reader(GsfReadFn fn)
+GSF_API void gsf_set_file_reader(GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
-    read_file_fn = fn;
+    read_file_fn = read_fn;
+    delete_file_data_fn = delete_fn;
 }
