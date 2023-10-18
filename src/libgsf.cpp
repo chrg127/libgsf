@@ -20,9 +20,46 @@
 #include <mgba/gba/core.h>
 #include <mgba/core/core.h>
 #include <mgba/core/blip_buf.h>
+#include <mgba/core/log.h>
 #include <mgba-util/vfs.h>
 #include "allocation.hpp"
 #include "string.hpp"
+
+
+
+/* allocation */
+
+GsfAllocators allocators = {
+    malloc, realloc, free
+};
+
+int default_read_file(const char *filename, unsigned char **buf, long *size)
+{
+    FILE *file = fopen(filename, "rb");
+    if (!file)
+        return 1;
+    fseek(file, 0l, SEEK_END);
+    *size = ftell(file);
+    rewind(file);
+    *buf = gsf_allocate<unsigned char>(*size);
+    size_t bytes_read = fread(*buf, sizeof(char), *size, file);
+    if (bytes_read < (size_t)*size) {
+        gsf_free(*buf);
+        return 1;
+    }
+    fclose(file);
+    return 0;
+}
+
+void default_delete_file_data(unsigned char *buf)
+{
+    gsf_free(buf);
+}
+
+GsfReadFn read_file_fn = default_read_file;
+GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
+
+
 
 /* utilities */
 
@@ -65,33 +102,6 @@ u32 read4(T ptr)
     return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
 }
 
-int default_read_file(const char *filename, unsigned char **buf, long *size)
-{
-    FILE *file = fopen(filename, "rb");
-    if (!file)
-        return 1;
-    fseek(file, 0l, SEEK_END);
-    *size = ftell(file);
-    rewind(file);
-    *buf = (unsigned char *) gsf_malloc(*size * sizeof(unsigned char));
-    // memset(*buf, 0, *size * sizeof(unsigned char));
-    size_t bytes_read = fread(*buf, sizeof(char), *size, file);
-    if (bytes_read < (size_t)*size) {
-        gsf_free(*buf);
-        return 1;
-    }
-    fclose(file);
-    return 0;
-}
-
-void default_delete_file_data(unsigned char *buf)
-{
-    gsf_free(buf);
-}
-
-GsfReadFn read_file_fn = default_read_file;
-GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
-
 template <typename T, typename Deleter = std::default_delete<T>>
 struct ManagedBuffer {
     std::unique_ptr<T[], Deleter> ptr;
@@ -112,14 +122,6 @@ Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath)
         .size = std::size_t(size),
     };
 }
-
-
-
-/* allocation */
-
-GsfAllocators allocators = {
-    malloc, realloc, free
-};
 
 
 
@@ -249,6 +251,102 @@ Result<GSFFile> load_file(fs::path filepath)
 
 
 
+/* mgba stuff */
+
+constexpr auto BUFFER_SIZE = 2048;
+constexpr auto NUM_CHANNELS = 2;
+
+void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right);
+
+struct AVStream : public mAVStream {
+    GSF_IMPLEMENTS_ALLOCATORS
+
+public:
+    short samples[4096];
+    int read = 0;
+    int index = 0;
+
+    AVStream() : mAVStream()
+    {
+        this->postAudioBuffer = post_audio_buffer;
+    }
+
+    void take(std::span<short> out)
+    {
+        std::copy(std::begin(samples) + index, std::begin(samples) + index + out.size(), out.begin());
+        index += out.size();
+        read -= out.size();
+        if (read == 0)
+            index = 0;
+    }
+};
+
+void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
+{
+    auto *self = (AVStream *) stream;
+    auto samples_read1 = blip_read_samples(left,  self->samples,   2048, true);
+    auto samples_read2 = blip_read_samples(right, self->samples+1, 2048, true);
+    self->read += 4096;
+}
+
+struct GsfEmu {
+    GSF_IMPLEMENTS_ALLOCATORS
+
+public:
+    mCore *core;
+    AVStream av;
+
+    int init(int sample_rate)
+    {
+        this->core = GBACoreCreate();
+        core->init(core);
+        mCoreInitConfig(core, nullptr);
+        core->setAVStream(core, &av);
+        core->setAudioBufferSize(core, 2048);
+        auto clock_rate = core->frequency(core);
+        for (auto i = 0; i < 2; i++)
+            blip_set_rates(core->getAudioChannel(core, i), clock_rate, sample_rate);
+        mCoreOptions opts = {
+            .skipBios = true,
+            .useBios = false,
+            .sampleRate = static_cast<unsigned>(sample_rate),
+        };
+        mCoreConfigLoadDefaults(&core->config, &opts);
+        return 0;
+    }
+
+    int load(std::span<u8> data)
+    {
+        auto *vmem = VFileMemChunk(data.data(), data.size());
+        core->loadROM(core, vmem);
+        core->reset(core);
+        return 0;
+    }
+
+    void play(short *out, size_t size)
+    {
+        while (av.read < size) {
+            core->runLoop(core);
+        }
+        av.take(std::span{out, size});
+    }
+
+    void deinit()
+    {
+        core->deinit(core);
+        core = nullptr;
+    }
+};
+
+// mGBA by default spits out a lot of log stuff. This and the call to
+// mLogSetDefaultLogger() in gsf_new makes sure to disable all that.
+void mgba_empty_log(struct mLogger *, int, enum mLogLevel, const char *, va_list) { }
+struct EmptyLogger : mLogger {
+    EmptyLogger() { this->log = mgba_empty_log; }
+} empty_logger;
+
+
+
 /* public API functions */
 
 unsigned int gsf_get_version(void)
@@ -262,17 +360,12 @@ bool gsf_is_compatible_dll(void)
     return major == GSF_VERSION_MAJOR;
 }
 
-struct GsfEmu {
-    mCore *core;
-};
-
-GSF_API int gsf_new(GsfEmu **out, int frequency)
+GSF_API int gsf_new(GsfEmu **out, int sample_rate)
 {
-    GsfEmu *emu = static_cast<GsfEmu *>(gsf_malloc(sizeof(GsfEmu)));
-    emu->core = GBACoreCreate();
-    emu->core->init(emu->core);
-    mCoreInitConfig(emu->core, nullptr);
+    auto *emu = new GsfEmu();
+    emu->init(sample_rate);
     *out = emu;
+    mLogSetDefaultLogger(&empty_logger);
     return 0;
 }
 
@@ -281,26 +374,23 @@ GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
     auto f = load_file(fs::path{filename});
     if (!f)
         return f.error();
-
-    auto *vmem = VFileMemChunk(f.value().rom.data.data(), f.value().rom.data.size());
-    emu->core->loadROM(emu->core, vmem);
+    emu->load(f.value().rom.data);
     return 0;
 }
 
 GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size)
 {
-
+    emu->play(out, size);
 }
 
 GSF_API bool gsf_track_ended(GsfEmu *emu)
 {
-    return true;
+    return false;
 }
 
 GSF_API void gsf_delete(GsfEmu *emu)
 {
-    emu->core->deinit(emu->core);
-    emu->core = nullptr;
+    emu->deinit();
 }
 
 GSF_API void gsf_set_allocators(
