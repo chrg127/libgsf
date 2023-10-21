@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <algorithm>
 #include <span>
 #include <array>
 #include <vector>
@@ -253,8 +254,9 @@ Result<GSFFile> load_file(fs::path filepath)
 
 /* mgba stuff */
 
-constexpr auto BUFFER_SIZE = 2048;
+constexpr auto NUM_SAMPLES = 2048;
 constexpr auto NUM_CHANNELS = 2;
+constexpr auto BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
 
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right);
 
@@ -262,9 +264,8 @@ struct AVStream : public mAVStream {
     GSF_IMPLEMENTS_ALLOCATORS
 
 public:
-    short samples[4096];
-    int read = 0;
-    int index = 0;
+    short samples[BUF_SIZE];
+    size_t read = 0;
 
     AVStream() : mAVStream()
     {
@@ -273,20 +274,22 @@ public:
 
     void take(std::span<short> out)
     {
-        std::copy(std::begin(samples) + index, std::begin(samples) + index + out.size(), out.begin());
-        index += out.size();
+        auto index = BUF_SIZE - read;
+        std::copy(
+            std::begin(samples) + index,
+            std::begin(samples) + index + out.size(),
+            out.begin()
+        );
         read -= out.size();
-        if (read == 0)
-            index = 0;
     }
 };
 
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
 {
     auto *self = (AVStream *) stream;
-    auto samples_read1 = blip_read_samples(left,  self->samples,   2048, true);
-    auto samples_read2 = blip_read_samples(right, self->samples+1, 2048, true);
-    self->read += 4096;
+    auto samples_read1 = blip_read_samples(left,  self->samples,   NUM_SAMPLES, true);
+    auto samples_read2 = blip_read_samples(right, self->samples+1, NUM_SAMPLES, true);
+    self->read += BUF_SIZE;
 }
 
 struct GsfEmu {
@@ -302,7 +305,7 @@ public:
         core->init(core);
         mCoreInitConfig(core, nullptr);
         core->setAVStream(core, &av);
-        core->setAudioBufferSize(core, 2048);
+        core->setAudioBufferSize(core, NUM_SAMPLES);
         auto clock_rate = core->frequency(core);
         for (auto i = 0; i < 2; i++)
             blip_set_rates(core->getAudioChannel(core, i), clock_rate, sample_rate);
@@ -325,10 +328,13 @@ public:
 
     void play(short *out, size_t size)
     {
-        while (av.read < size) {
-            core->runLoop(core);
+        for (auto took = 0; took < size; ) {
+            while (av.read == 0)
+                core->runLoop(core);
+            auto to_take = std::min(size - took, av.read);
+            av.take(std::span{out + took, to_take});
+            took += to_take;
         }
-        av.take(std::span{out, size});
     }
 
     void deinit()
@@ -341,6 +347,7 @@ public:
 // mGBA by default spits out a lot of log stuff. This and the call to
 // mLogSetDefaultLogger() in gsf_new makes sure to disable all that.
 void mgba_empty_log(struct mLogger *, int, enum mLogLevel, const char *, va_list) { }
+
 struct EmptyLogger : mLogger {
     EmptyLogger() { this->log = mgba_empty_log; }
 } empty_logger;
