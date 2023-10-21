@@ -39,11 +39,9 @@ include(CMakePackageConfigHelpers)
 
 # libgsf
 
+## mgba stuff
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/mgba/src/platform/cmake/")
-
 add_subdirectory(external/mgba/src/arm EXCLUDE_FROM_ALL)
-# add_subdirectory(external/mgba/src/gb EXCLUDE_FROM_ALL)
-# add_subdirectory(external/mgba/src/sm83 EXCLUDE_FROM_ALL)
 add_subdirectory(external/mgba/src/core EXCLUDE_FROM_ALL)
 add_subdirectory(external/mgba/src/gba EXCLUDE_FROM_ALL)
 add_subdirectory(external/mgba/src/util EXCLUDE_FROM_ALL)
@@ -58,15 +56,14 @@ set(GIT_REV -1)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/external/mgba/src/core/version.c.in ${CMAKE_CURRENT_BINARY_DIR}/external/mgba/version.c)
 list(APPEND UTIL_SRC ${CMAKE_CURRENT_BINARY_DIR}/external/mgba/version.c)
 
-message("third party src = " ${THIRD_PARTY_SRC})
-
+find_package(SDL2 REQUIRED)
 
 add_executable(libgsf
     src/libgsf.cpp
-    src/example.c
+    # src/example.c
+    src/example_sdl.c
     ${ARM_SRC}
     ${GBA_SRC}
-    # ${GBA_EXTRA_SRC}
     ${CORE_SRC}
     ${UTIL_SRC}
     ${OS_SRC}
@@ -86,6 +83,12 @@ target_include_directories(libgsf
         external/expected/include
         external/mgba/include
         external/mgba/src
+        ${SDL2_INCLUDE_DIRS}
+)
+
+target_link_directories(libgsf
+    PRIVATE
+        ${SDL2_LIBRARY_DIRS}
 )
 
 target_compile_features(libgsf
@@ -95,4 +98,5 @@ target_compile_features(libgsf
 
 target_link_libraries(libgsf
     z
+    ${SDL2_LIBRARIES}
 )
