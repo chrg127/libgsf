@@ -31,16 +31,47 @@ extern "C" {
 #define GSF_VERSION_MINOR 1
 #define GSF_VERSION ((GSF_VERSION_MAJOR << 16) | GSF_VERSION_MINOR)
 
-unsigned int gsf_get_version(void);
-bool gsf_is_compatible_dll(void);
-
 typedef struct GsfEmu GsfEmu;
 
-GSF_API int gsf_new(GsfEmu **out, int frequency);
+typedef enum GsfFlags {
+    GSF_INFO_ONLY   = 1 << 1,
+    GSF_MULTI       = 1 << 2,
+} GsfFlags;
+
+typedef struct GsfTags {
+    const char *title;
+    const char *artist;
+    const char *game;
+    int year;
+    const char *genre;
+    const char *comment;
+    const char *copyright;
+    const char *gsfby;
+    double volume;
+    int length;
+    int fade;
+} GsfTags;
+
+GSF_API unsigned int gsf_get_version(void);
+GSF_API bool gsf_is_compatible_dll(void);
+GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
+GSF_API void gsf_delete(GsfEmu *emu);
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
 GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size);
 GSF_API bool gsf_track_ended(GsfEmu *emu);
-GSF_API void gsf_delete(GsfEmu *emu);
+GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out);
+GSF_API void gsf_free_tags(GsfTags *tags);
+
+// gsf_tell
+// gsf_tell_samples
+// gsf_seek
+// gsf_seek_samples
+// gsf_set_fade
+// gsf_set_tempo
+// gsf_channel_count -- probably should be a constant
+// gsf_channel_name
+// gsf_mute_channel
+// gsf_set_channel_volume
 
 /* memory allocation customization */
 GSF_API void gsf_set_allocators(
@@ -49,13 +80,15 @@ GSF_API void gsf_set_allocators(
     void (*free_fn)(void *)
 );
 
-/*
- * Sets the function used to read files.
- */
-typedef int (*GsfReadFn)(const char *filename, unsigned char **buf, long *size);
+/* Setups functions used to read files. */
+typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
 typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
 
-GSF_API void gsf_set_file_reader(GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn);
+GSF_API void gsf_set_file_reader(
+    void *userdata,
+    GsfReadFn read_fn,
+    GsfDeleteFileDataFn delete_fn
+);
 
 #ifdef __cplusplus
 }

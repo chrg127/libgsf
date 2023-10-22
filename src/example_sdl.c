@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     }
 
     GsfEmu *emu;
-    if (gsf_new(&emu, 44100) != 0) {
+    if (gsf_new(&emu, 44100, 0) != 0) {
         printf("couldn't create emulator\n");
         return 1;
     }

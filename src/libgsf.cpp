@@ -34,7 +34,7 @@ GsfAllocators allocators = {
     malloc, realloc, free
 };
 
-int default_read_file(const char *filename, unsigned char **buf, long *size)
+int default_read_file(void *, const char *filename, unsigned char **buf, long *size)
 {
     FILE *file = fopen(filename, "rb");
     if (!file)
@@ -57,6 +57,7 @@ void default_delete_file_data(unsigned char *buf)
     gsf_free(buf);
 }
 
+void *read_file_userdata;
 GsfReadFn read_file_fn = default_read_file;
 GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
 
@@ -115,13 +116,42 @@ Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath)
 {
     u8 *buf;
     long size;
-    auto err = read_file_fn(filepath.string().c_str(), &buf, &size);
+    auto err = read_file_fn(read_file_userdata, filepath.string().c_str(), &buf, &size);
     if (err != 0)
         return tl::unexpected(err);
     return ManagedBuffer {
         .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_file_data_fn},
         .size = std::size_t(size),
     };
+}
+
+std::optional<int> parse_duration(std::string_view s)
+{
+    std::array<int, 4> numbers = { 0, 0, 0, 0 };
+    std::array<int, 4> multipliers = { 60 * 60 * 1000, 60 * 1000, 1000, 1 };
+    bool decimal = false;
+    auto parsenum = [&] (auto start, int index) {
+        auto i = start;
+        while (string::is_digit(s[i]))
+            i--;
+        numbers[index--] = string::to_number(s.substr(i+1, start - i)).value();
+        return i;
+    };
+    int i = parsenum(s.size() - 1, 3);
+    if (s[i] == '.' || s[i] == ',') {
+        i = parsenum(i-1, 2);
+        decimal = true;
+    }
+    if (decimal && s[i] == ':')
+        i = parsenum(i-1, 1);
+    if (decimal && s[i] == ':')
+        i = parsenum(i-1, 0);
+    if (i > 0)
+        return std::nullopt;
+    int n = 0;
+    for (int i = 4; i >= 0; i--)
+        n += numbers[i] * multipliers[i];
+    return n;
 }
 
 
@@ -201,6 +231,7 @@ Result<GSFFile> parse(std::span<u8> data)
     auto tags = std::memcmp(readb(5).data(), "[TAG]", 5) == 0
               ? readb(std::min<size_t>(data.size() - cursor, 50000u))
               : std::span<u8>{};
+    // printf("tags:\n%s\n", tags.data());
     return GSFFile {
         // .reserved = reserved,
         .rom = std::move(rom.value()),
@@ -252,7 +283,8 @@ Result<GSFFile> load_file(fs::path filepath)
 
 
 
-/* mgba stuff */
+/* actual implementation of emulator and various other stuff
+ * using mGBA as a base */
 
 constexpr auto NUM_SAMPLES = 2048;
 constexpr auto NUM_CHANNELS = 2;
@@ -298,13 +330,16 @@ struct GsfEmu {
 public:
     mCore *core;
     AVStream av;
+    TagMap tags;
+    String default_tag;
 
-    int init(int sample_rate)
+    explicit GsfEmu(mCore *core) : core{core} { }
+
+    static Result<GsfEmu *> create(int sample_rate)
     {
-        this->core = GBACoreCreate();
+        auto core = GBACoreCreate();
         core->init(core);
         mCoreInitConfig(core, nullptr);
-        core->setAVStream(core, &av);
         core->setAudioBufferSize(core, NUM_SAMPLES);
         auto clock_rate = core->frequency(core);
         for (auto i = 0; i < 2; i++)
@@ -315,7 +350,15 @@ public:
             .sampleRate = static_cast<unsigned>(sample_rate),
         };
         mCoreConfigLoadDefaults(&core->config, &opts);
-        return 0;
+        auto *emu = new GsfEmu(core);
+        core->setAVStream(core, &emu->av);
+        return emu;
+    }
+
+    ~GsfEmu()
+    {
+        core->deinit(core);
+        core = nullptr;
     }
 
     int load(std::span<u8> data)
@@ -337,10 +380,13 @@ public:
         }
     }
 
-    void deinit()
+    void set_tags(TagMap &&tags) { this->tags = std::move(tags); }
+
+    std::string_view get_tag(const String &s)
     {
-        core->deinit(core);
-        core = nullptr;
+        if (auto it = tags.find(s); it != tags.end())
+            return it->second;
+        return "";
     }
 };
 
@@ -356,24 +402,30 @@ struct EmptyLogger : mLogger {
 
 /* public API functions */
 
-unsigned int gsf_get_version(void)
+GSF_API unsigned int gsf_get_version(void)
 {
     return GSF_VERSION;
 }
 
-bool gsf_is_compatible_dll(void)
+GSF_API bool gsf_is_compatible_dll(void)
 {
     unsigned major = gsf_get_version() >> 16;
     return major == GSF_VERSION_MAJOR;
 }
 
-GSF_API int gsf_new(GsfEmu **out, int sample_rate)
+GSF_API int gsf_new(GsfEmu **out, int sample_rate, int)
 {
-    auto *emu = new GsfEmu();
-    emu->init(sample_rate);
-    *out = emu;
+    auto emu = GsfEmu::create(sample_rate);
+    if (!emu)
+        return emu.error();
+    *out = emu.value();
     mLogSetDefaultLogger(&empty_logger);
     return 0;
+}
+
+GSF_API void gsf_delete(GsfEmu *emu)
+{
+    delete emu;
 }
 
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
@@ -382,6 +434,7 @@ GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
     if (!f)
         return f.error();
     emu->load(f.value().rom.data);
+    emu->set_tags(std::move(f.value().tags));
     return 0;
 }
 
@@ -395,9 +448,27 @@ GSF_API bool gsf_track_ended(GsfEmu *emu)
     return false;
 }
 
-GSF_API void gsf_delete(GsfEmu *emu)
+GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out)
 {
-    emu->deinit();
+    GsfTags *tags   = gsf_allocate<GsfTags>();
+    tags->title     = emu->get_tag("title").data();
+    tags->artist    = emu->get_tag("artist").data();
+    tags->game      = emu->get_tag("game").data();
+    tags->year      = string::to_number(emu->get_tag("year")).value_or(0);
+    tags->genre     = emu->get_tag("genre").data();
+    tags->comment   = emu->get_tag("comment").data();
+    tags->copyright = emu->get_tag("copyright").data();
+    tags->gsfby     = emu->get_tag("gsfby").data();
+    tags->volume    = string::to_number<double>(emu->get_tag("volume")).value_or(0.0);
+    tags->length    = parse_duration(emu->get_tag("length")).value_or(0);
+    tags->fade      = parse_duration(emu->get_tag("fade")).value_or(0);
+    *out = tags;
+    return 0;
+}
+
+GSF_API void gsf_free_tags(GsfTags *tags)
+{
+    gsf_free(tags);
 }
 
 GSF_API void gsf_set_allocators(
