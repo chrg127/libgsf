@@ -130,7 +130,7 @@ fade
     seconds.decimal
     minutes:seconds.decimal
     hours:minutes:seconds.decimal
-  The decmial portion may be omitted.  Commas are also recognized as decimal
+  The decimal portion may be omitted.  Commas are also recognized as decimal
   separators.
 
 The following variables are reserved and should not be used:

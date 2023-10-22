@@ -27,8 +27,8 @@ find_package(SDL2 REQUIRED)
 
 add_executable(libgsf
     src/libgsf.cpp
-    # src/example.c
-    src/example_sdl.c
+    src/example.c
+    # src/example_sdl.c
     ${ARM_SRC}
     ${GBA_SRC}
     ${CORE_SRC}

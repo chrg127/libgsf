@@ -1,29 +1,27 @@
-/*
- * GSF Specifications version 0.02
- *
- * GSF is a PSF format for the GBA. The header of the file should begin with 'PSF' with a version byte
- * of 0x22. Next comes the Reserved section size, Program Section Size, and the Program CRC.
- *
- * The Reserved section is reserved for the possible future use of storing a save state. You may not
- * delete/disregard this section.  The format of how the save state is stored has yet to be defined,
- * as there hasn't been an instance where a save state is needed.
- *
- * The program section contains a GBA rom, that has been patched to only play back music.  If the rip
- * quality is good, then no graphics or any other such things should be in the VRAM/OAM/Pallete Ram.
- * It is layed out in the program section as follows
- *
- * Offset         Size    Description
- * 0x0000000      4       GSF_Entry_Point
- * 0x0000004      4       GSF_Offset
- * 0x0000008      4       Size of Rom.
- * 0x000000C      XX      The Rom data itself.
- *
- * The valid GSF_Entry_Points are 0x2000000 (Multiboot region), and 0x8000000 (Rom region).
- * The The High byte of the Offset should match the high byte of Entry_Point.
- *
- * The offset/size helps you to know how much rom space to allocate, but is also used for
- * minigsf/gsflibs.  Look at the official psf specs for lib loading order.  Multiple libs are
- * now supported.
- *
- * Finally, Look at the official psf specs for info on how tags are stored.
- */
+GSF Specifications version 0.02
+
+GSF is a PSF format for the GBA. The header of the file should begin with 'PSF' with a version byte
+of 0x22. Next comes the Reserved section size, Program Section Size, and the Program CRC.
+
+The Reserved section is reserved for the possible future use of storing a save state. You may not
+delete/disregard this section.  The format of how the save state is stored has yet to be defined,
+as there hasn't been an instance where a save state is needed.
+
+The program section contains a GBA rom, that has been patched to only play back music.  If the rip
+quality is good, then no graphics or any other such things should be in the VRAM/OAM/Pallete Ram.
+It is layed out in the program section as follows
+
+Offset         Size    Description
+0x0000000      4       GSF_Entry_Point
+0x0000004      4       GSF_Offset
+0x0000008      4       Size of Rom.
+0x000000C      XX      The Rom data itself.
+
+The valid GSF_Entry_Points are 0x2000000 (Multiboot region), and 0x8000000 (Rom region).
+The The High byte of the Offset should match the high byte of Entry_Point.
+
+The offset/size helps you to know how much rom space to allocate, but is also used for
+minigsf/gsflibs.  Look at the official psf specs for lib loading order.  Multiple libs are
+now supported.
+
+Finally, Look at the official psf specs for info on how tags are stored.
