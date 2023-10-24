@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 int main(int argc, char *argv[])
 {
@@ -26,7 +27,6 @@ int main(int argc, char *argv[])
 
     GsfTags *tags;
     gsf_get_tags(emu, &tags);
-
     printf(
         "title: %s\n"
         "artist: %s\n"
@@ -44,13 +44,14 @@ int main(int argc, char *argv[])
         tags->copyright, tags->gsfby,
         tags->volume, tags->length, tags->fade
     );
-
     gsf_free_tags(tags);
 
     while (!gsf_track_ended(emu)) {
         short samples[16];
         gsf_play(emu, samples, 16);
-        /* do something with samples */
+        printf("\r%d samples, %d millis %d seconds", gsf_tell_samples(emu), gsf_tell(emu), gsf_tell(emu) / 1000);
+        fflush(stdout);
+        usleep(1000);
     }
 
     gsf_delete(emu);

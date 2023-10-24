@@ -17,10 +17,16 @@ const int BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
 void sdl_callback(void *userdata, unsigned char *stream, int length)
 {
     GsfEmu *emu = (GsfEmu *) userdata;
+    memset(stream, 0, length);
     if (!gsf_track_ended(emu)) {
         short samples[BUF_SIZE];
         gsf_play(emu, samples, BUF_SIZE);
         memcpy(stream, samples, sizeof(samples));
+        printf("\r%d samples, %d millis, %d seconds",
+            gsf_tell_samples(emu),
+            gsf_tell(emu),
+            gsf_tell(emu) / 1000);
+        fflush(stdout);
     }
 }
 
@@ -41,6 +47,27 @@ int main(int argc, char *argv[])
         printf("couldn't load file inside emulator\n");
         return 1;
     }
+
+    GsfTags *tags;
+    gsf_get_tags(emu, &tags);
+    printf(
+        "title: %s\n"
+        "artist: %s\n"
+        "game: %s\n"
+        "year: %d\n"
+        "genre: %s\n"
+        "comment: %s\n"
+        "copyright: %s\n"
+        "gsfby: %s\n"
+        "volume: %f\n"
+        "length: %d\n"
+        "fade: %d\n",
+        tags->title, tags->artist, tags->game,
+        tags->year, tags->genre, tags->comment,
+        tags->copyright, tags->gsfby,
+        tags->volume, tags->length, tags->fade
+    );
+    gsf_free_tags(tags);
 
     SDL_Init(SDL_INIT_AUDIO);
     SDL_AudioSpec spec;

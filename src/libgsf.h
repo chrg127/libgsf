@@ -61,9 +61,9 @@ GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size);
 GSF_API bool gsf_track_ended(GsfEmu *emu);
 GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out);
 GSF_API void gsf_free_tags(GsfTags *tags);
+GSF_API size_t gsf_tell(GsfEmu *emu);
+GSF_API size_t gsf_tell_samples(GsfEmu *emu);
 
-// gsf_tell
-// gsf_tell_samples
 // gsf_seek
 // gsf_seek_samples
 // gsf_set_fade
