@@ -57,15 +57,15 @@ GSF_API bool gsf_is_compatible_dll(void);
 GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
 GSF_API void gsf_delete(GsfEmu *emu);
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
-GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size);
+GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 GSF_API bool gsf_track_ended(GsfEmu *emu);
 GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out);
 GSF_API void gsf_free_tags(GsfTags *tags);
-GSF_API size_t gsf_tell(GsfEmu *emu);
-GSF_API size_t gsf_tell_samples(GsfEmu *emu);
+GSF_API long gsf_tell(GsfEmu *emu);
+GSF_API long gsf_tell_samples(GsfEmu *emu);
+GSF_API void gsf_seek(GsfEmu *emu, long millis);
+GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);
 
-// gsf_seek
-// gsf_seek_samples
 // gsf_set_fade
 // gsf_set_tempo
 // gsf_channel_count -- probably should be a constant

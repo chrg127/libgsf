@@ -154,6 +154,23 @@ std::optional<int> parse_duration(std::string_view s)
     return n;
 }
 
+long samples_to_millis(long samples, int sample_rate, int channels)
+{
+    auto rate    = sample_rate * 2;
+    auto seconds = samples / rate;
+    // because ^ is an integer (and we return millis), right-hand expression
+    // calculates the number of samples that composes the fractional part
+    // (of the above division), then converts to millis
+    return seconds * 1000 + (samples - seconds * rate) * 1000 / rate;
+}
+
+long millis_to_samples(long millis, int sample_rate, int channels)
+{
+	auto seconds = millis / 1000;
+	millis -= seconds * 1000;
+	return (seconds * sample_rate + millis * sample_rate / 1000) * channels;
+}
+
 
 
 /* gsf parsing */
@@ -297,7 +314,7 @@ class AVStream : public mAVStream {
 
 public:
     short samples[BUF_SIZE];
-    size_t read = 0;
+    long read = 0;
 
     AVStream() : mAVStream()
     {
@@ -314,6 +331,8 @@ public:
         );
         read -= out.size();
     }
+
+    long clear() { auto r = read; read = 0; return r; }
 };
 
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
@@ -330,9 +349,10 @@ class GsfEmu {
     mCore *core;
     AVStream av;
     TagMap tags;
-    size_t num_samples = 0;
+    long num_samples = 0;
+    long length = 0;
+    long max_samples = 0;
     int samplerate = 0;
-    int length = 0;
 
 public:
     explicit GsfEmu(mCore *core, int sample_rate)
@@ -372,23 +392,38 @@ public:
         return 0;
     }
 
-    void play(short *out, size_t size)
+    void play(short *out, long size)
     {
         memset(out, 0, size * sizeof(short));
-        for (auto took = 0; took < size; ) {
+        for (auto took = 0; took < size && !ended(); ) {
             while (av.read == 0)
                 core->runLoop(core);
             auto to_take = std::min(size - took, av.read);
-            av.take(std::span{out + took, to_take});
+            av.take(std::span{out + took, static_cast<size_t>(to_take)});
             took += to_take;
+            num_samples += to_take;
         }
-        num_samples += size;
+    }
+
+    void skip(long n)
+    {
+        auto start = av.clear();
+        for ( ; start < n && !ended(); start += av.clear()) {
+            while (av.read == 0)
+                core->runLoop(core);
+            num_samples += av.read;
+        }
+        if (start > n) {
+            av.read = BUF_SIZE - (start - n);
+            num_samples -= (start - n);
+        }
     }
 
     void set_tags(TagMap &&tags)
     {
         this->tags = std::move(tags);
         length = parse_duration(get_tag("length")).value_or(0);
+        max_samples = millis_to_samples(length, samplerate, 2);
     }
 
     std::string_view get_tag(const String &s)
@@ -398,11 +433,13 @@ public:
         return "";
     }
 
-    size_t tell() const { return num_samples; }
+    long tell() const { return num_samples; }
 
     int sample_rate() const { return samplerate; }
 
-    int get_length() const { return length; }
+    long get_length() const { return length; }
+
+    bool ended() const { return num_samples >= max_samples; }
 };
 
 // mGBA by default spits out a lot of log stuff. This and the call to
@@ -453,14 +490,14 @@ GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
     return 0;
 }
 
-GSF_API void gsf_play(GsfEmu *emu, short *out, size_t size)
+GSF_API void gsf_play(GsfEmu *emu, short *out, long size)
 {
     emu->play(out, size);
 }
 
 GSF_API bool gsf_track_ended(GsfEmu *emu)
 {
-    return gsf_tell(emu) > emu->get_length();
+    return emu->ended();
 }
 
 GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out)
@@ -486,20 +523,24 @@ GSF_API void gsf_free_tags(GsfTags *tags)
     gsf_free(tags);
 }
 
-GSF_API size_t gsf_tell(GsfEmu *emu)
+GSF_API long gsf_tell(GsfEmu *emu)
 {
-    auto rate    = emu->sample_rate() * 2;
-    auto samples = emu->tell();
-    auto seconds = samples / rate;
-    // because ^ is an integer (and we return millis), right-hand expression
-    // calculates the number of samples that composes the fractional part
-    // (of the above division), then converts to millis
-    return seconds * 1000 + (samples - seconds * rate) * 1000 / rate;
+    return samples_to_millis(emu->tell(), emu->sample_rate(), 2);
 }
 
-GSF_API size_t gsf_tell_samples(GsfEmu *emu)
+GSF_API long gsf_tell_samples(GsfEmu *emu)
 {
     return emu->tell();
+}
+
+GSF_API void gsf_seek(GsfEmu *emu, long millis)
+{
+    gsf_seek_samples(emu, millis_to_samples(millis, emu->sample_rate(), 2));
+}
+
+GSF_API void gsf_seek_samples(GsfEmu *emu, long samples)
+{
+    emu->skip(samples);
 }
 
 GSF_API void gsf_set_allocators(

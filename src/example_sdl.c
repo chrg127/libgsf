@@ -7,6 +7,37 @@
 #include <SDL.h>
 #include <SDL_audio.h>
 
+#include <unistd.h>
+#include <termios.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/ioctl.h>
+
+struct termios ots = {};
+
+void term_init()
+{
+    struct termios ts = {};
+    if (tcgetattr(STDIN_FILENO, &ts) == -1)
+        return;
+    ots = ts;
+    ts.c_lflag &= ~(ICANON | ECHO | ECHONL);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &ts);
+    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+}
+
+void term_end()
+{
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &ots);
+}
+
+bool get_input(char *c)
+{
+    return read(STDIN_FILENO, c, 1) == 1;
+}
+
+
+
 // note that using SDL's audio libraries with a small buffer size
 // can result in garbage being played alongside the music.
 // if you wanna test it, simply set the value below to 16
@@ -22,12 +53,12 @@ void sdl_callback(void *userdata, unsigned char *stream, int length)
         short samples[BUF_SIZE];
         gsf_play(emu, samples, BUF_SIZE);
         memcpy(stream, samples, sizeof(samples));
-        printf("\r%d samples, %d millis, %d seconds",
-            gsf_tell_samples(emu),
-            gsf_tell(emu),
-            gsf_tell(emu) / 1000);
-        fflush(stdout);
     }
+    printf("\r%d samples, %d millis, %d seconds",
+        gsf_tell_samples(emu),
+        gsf_tell(emu),
+        gsf_tell(emu) / 1000);
+    fflush(stdout);
 }
 
 int main(int argc, char *argv[])
@@ -69,6 +100,8 @@ int main(int argc, char *argv[])
     );
     gsf_free_tags(tags);
 
+    term_init();
+
     SDL_Init(SDL_INIT_AUDIO);
     SDL_AudioSpec spec;
     spec.freq     = 44100;
@@ -89,10 +122,23 @@ int main(int argc, char *argv[])
                 break;
             }
         }
+        char c = 1;
+        if (get_input(&c)) {
+            switch (c) {
+            case 'l':
+                // printf("hello\n");
+                SDL_LockAudioDevice(dev);
+                gsf_seek(emu, 1000);
+                SDL_UnlockAudioDevice(dev);
+                break;
+            }
+        }
     }
 
     SDL_CloseAudioDevice(dev);
     gsf_delete(emu);
+
+    term_end();
 
     return 0;
 }
