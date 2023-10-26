@@ -36,8 +36,6 @@ bool get_input(char *c)
     return read(STDIN_FILENO, c, 1) == 1;
 }
 
-
-
 // note that using SDL's audio libraries with a small buffer size
 // can result in garbage being played alongside the music.
 // if you wanna test it, simply set the value below to 16
@@ -69,7 +67,7 @@ int main(int argc, char *argv[])
     }
 
     GsfEmu *emu;
-    if (gsf_new(&emu, 44100, 0) != 0) {
+    if (gsf_new(&emu, 44100, GSF_INFINITE) != 0) {
         printf("couldn't create emulator\n");
         return 1;
     }

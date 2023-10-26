@@ -36,6 +36,7 @@ typedef struct GsfEmu GsfEmu;
 typedef enum GsfFlags {
     GSF_INFO_ONLY   = 1 << 1,
     GSF_MULTI       = 1 << 2,
+    GSF_INFINITE    = 1 << 3,
 } GsfFlags;
 
 typedef struct GsfTags {
@@ -57,14 +58,18 @@ GSF_API bool gsf_is_compatible_dll(void);
 GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
 GSF_API void gsf_delete(GsfEmu *emu);
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
+GSF_API bool gsf_loaded(const GsfEmu *emu);
 GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
-GSF_API bool gsf_track_ended(GsfEmu *emu);
-GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out);
+GSF_API bool gsf_track_ended(const GsfEmu *emu);
+GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out);
 GSF_API void gsf_free_tags(GsfTags *tags);
-GSF_API long gsf_tell(GsfEmu *emu);
-GSF_API long gsf_tell_samples(GsfEmu *emu);
+GSF_API long gsf_tell(const GsfEmu *emu);
+GSF_API long gsf_tell_samples(const GsfEmu *emu);
 GSF_API void gsf_seek(GsfEmu *emu, long millis);
 GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);
+GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
+GSF_API long gsf_default_length(const GsfEmu *emu, long length);
+GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
 
 // gsf_set_fade
 // gsf_set_tempo

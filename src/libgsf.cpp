@@ -67,27 +67,11 @@ GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
 
 namespace fs = std::filesystem;
 
-constexpr int MAX_LIBS = 11;
-
 using u8 = unsigned char;
 using u32 = uint32_t;
 template <typename T> using Vector = std::vector<T, GsfAllocator<T>>;
 using String = std::basic_string<char, std::char_traits<char>, GsfAllocator<char>>;
 template <typename T> using Result = tl::expected<T, int>;
-
-// template <typename T, typename... Args>
-// constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(Args&&... args)
-// {
-//     auto *p = gsf_malloc(sizeof(T));
-//     return std::unique_ptr<T, void (*)(void *)>{new (p) T(std::forward<Args>(args)...), gsf_free};
-// }
-
-// template <typename T, typename... Args>
-// constexpr std::unique_ptr<T, void (*)(void *)> gsf_make_unique(std::size_t size)
-// {
-//     auto *p = gsf_malloc(sizeof(T) * size);
-//     return std::unique_ptr<T, void (*)(void *)>(new (p) std::remove_extent_t<T>[size](), gsf_free);
-// }
 
 struct InsensitiveCompare {
     constexpr bool operator()(const String &lhs, const String &rhs) const
@@ -154,7 +138,7 @@ std::optional<int> parse_duration(std::string_view s)
     return n;
 }
 
-long samples_to_millis(long samples, int sample_rate, int channels)
+constexpr long samples_to_millis(long samples, int sample_rate, int channels)
 {
     auto rate    = sample_rate * 2;
     auto seconds = samples / rate;
@@ -164,7 +148,7 @@ long samples_to_millis(long samples, int sample_rate, int channels)
     return seconds * 1000 + (samples - seconds * rate) * 1000 / rate;
 }
 
-long millis_to_samples(long millis, int sample_rate, int channels)
+constexpr long millis_to_samples(long millis, int sample_rate, int channels)
 {
 	auto seconds = millis / 1000;
 	millis -= seconds * 1000;
@@ -174,6 +158,8 @@ long millis_to_samples(long millis, int sample_rate, int channels)
 
 
 /* gsf parsing */
+
+constexpr int MAX_LIBS = 11;
 
 struct Rom {
     u32 entry_point;
@@ -242,13 +228,13 @@ Result<GSFFile> parse(std::span<u8> data)
     if (reserved_length + program_length + 16 > data.size())
         return tl::unexpected(0);
     // auto reserved = readb(reserved_length);
+    readb(reserved_length);
     auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};
     if (!rom)
         return tl::unexpected(rom.error());
     auto tags = std::memcmp(readb(5).data(), "[TAG]", 5) == 0
               ? readb(std::min<size_t>(data.size() - cursor, 50000u))
               : std::span<u8>{};
-    // printf("tags:\n%s\n", tags.data());
     return GSFFile {
         // .reserved = reserved,
         .rom = std::move(rom.value()),
@@ -283,16 +269,15 @@ Result<GSFFile> load_file(fs::path filepath)
                     }); !r)
             return tl::unexpected(r.error());
         for (auto i = 2; i < MAX_LIBS; i++) {
-            auto libname = find_lib(std::span{files.begin(), files.begin() + i}, i);
-            if (!libname)
-                break;
-            if (auto r = read_file(filepath.parent_path() / libname.value())
-                        .and_then(parsebuf)
-                        .map([&] (GSFFile &&f) {
-                            files[i] = std::move(f);
-                            files[0].impose(files[i]);
-                        }); !r)
-                return tl::unexpected(r.error());
+            if (auto libname = find_lib(std::span{files.begin(), files.begin() + i}, i); libname) {
+                if (auto r = read_file(filepath.parent_path() / libname.value())
+                            .and_then(parsebuf)
+                            .map([&] (GSFFile &&f) {
+                                files[i] = std::move(f);
+                                files[0].impose(files[i]);
+                            }); !r)
+                    return tl::unexpected(r.error());
+            }
         }
     }
     return files[0];
@@ -300,8 +285,8 @@ Result<GSFFile> load_file(fs::path filepath)
 
 
 
-/* actual implementation of emulator and various other stuff
- * using mGBA as a base */
+// actual implementation of emulator and various other stuff
+// using mGBA as a base
 
 constexpr auto NUM_SAMPLES = 2048;
 constexpr auto NUM_CHANNELS = 2;
@@ -332,7 +317,7 @@ public:
         read -= out.size();
     }
 
-    long clear() { auto r = read; read = 0; return r; }
+    void clear(long n) { read -= n; }
 };
 
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
@@ -348,17 +333,19 @@ class GsfEmu {
 
     mCore *core;
     AVStream av;
+    int samplerate;
+    int flags;
     TagMap tags;
     long num_samples = 0;
-    long length = 0;
     long max_samples = 0;
-    int samplerate = 0;
+    int default_len = 0;
+    bool loaded = false;
 
 public:
-    explicit GsfEmu(mCore *core, int sample_rate)
-        : core{core}, samplerate{sample_rate} { }
+    explicit GsfEmu(mCore *core, int sample_rate, int flags)
+        : core{core}, samplerate{sample_rate}, flags{flags} { }
 
-    static Result<GsfEmu *> create(int sample_rate)
+    static Result<GsfEmu *> create(int sample_rate, int flags)
     {
         auto core = GBACoreCreate();
         core->init(core);
@@ -373,7 +360,7 @@ public:
             .sampleRate = static_cast<unsigned>(sample_rate),
         };
         mCoreConfigLoadDefaults(&core->config, &opts);
-        auto *emu = new GsfEmu(core, sample_rate);
+        auto *emu = new GsfEmu(core, sample_rate, flags);
         core->setAVStream(core, &emu->av);
         return emu;
     }
@@ -384,11 +371,15 @@ public:
         core = nullptr;
     }
 
-    int load(std::span<u8> data)
+    int load(std::span<u8> data, TagMap &&tags)
     {
         auto *vmem = VFileMemChunk(data.data(), data.size());
         core->loadROM(core, vmem);
         core->reset(core);
+        this->tags = std::move(tags);
+        auto length = parse_duration(get_tag("length")).value_or(default_len);
+        max_samples = millis_to_samples(length, samplerate, 2);
+        loaded = true;
         return 0;
     }
 
@@ -407,39 +398,42 @@ public:
 
     void skip(long n)
     {
-        auto start = av.clear();
-        for ( ; start < n && !ended(); start += av.clear()) {
+        for (auto took = 0; took < n && !ended(); ) {
             while (av.read == 0)
                 core->runLoop(core);
-            num_samples += av.read;
-        }
-        if (start > n) {
-            av.read = BUF_SIZE - (start - n);
-            num_samples -= (start - n);
+            auto to_take = std::min(n - took, av.read);
+            av.clear(to_take);
+            took += to_take;
+            num_samples += to_take;
         }
     }
 
-    void set_tags(TagMap &&tags)
-    {
-        this->tags = std::move(tags);
-        length = parse_duration(get_tag("length")).value_or(0);
-        max_samples = millis_to_samples(length, samplerate, 2);
-    }
-
-    std::string_view get_tag(const String &s)
+    std::string_view get_tag(const String &s) const
     {
         if (auto it = tags.find(s); it != tags.end())
             return it->second;
         return "";
     }
 
-    long tell() const { return num_samples; }
+    void set_default_length(long length)
+    {
+        default_len = length;
+        if (loaded && max_samples == 0) {
+            max_samples = millis_to_samples(default_len, samplerate, 2);
+        }
+    }
 
-    int sample_rate() const { return samplerate; }
+    void toggle_flag(unsigned which, unsigned value)
+    {
+        flags = (flags & ~which) | (value & 1) << which;
+    }
 
-    long get_length() const { return length; }
-
-    bool ended() const { return num_samples >= max_samples; }
+    long tell()           const { return num_samples; }
+    int sample_rate()     const { return samplerate; }
+    long length()         const { return samples_to_millis(max_samples, samplerate, 2); }
+    long default_length() const { return default_len; }
+    bool ended()          const { return flags & GSF_INFINITE ? false : num_samples >= max_samples; }
+    bool loaded_file()    const { return loaded; }
 };
 
 // mGBA by default spits out a lot of log stuff. This and the call to
@@ -465,9 +459,9 @@ GSF_API bool gsf_is_compatible_dll(void)
     return major == GSF_VERSION_MAJOR;
 }
 
-GSF_API int gsf_new(GsfEmu **out, int sample_rate, int)
+GSF_API int gsf_new(GsfEmu **out, int sample_rate, int flags)
 {
-    auto emu = GsfEmu::create(sample_rate);
+    auto emu = GsfEmu::create(sample_rate, flags);
     if (!emu)
         return emu.error();
     *out = emu.value();
@@ -485,9 +479,13 @@ GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
     auto f = load_file(fs::path{filename});
     if (!f)
         return f.error();
-    emu->load(f.value().rom.data);
-    emu->set_tags(std::move(f.value().tags));
+    emu->load(f.value().rom.data, std::move(f.value().tags));
     return 0;
+}
+
+GSF_API bool gsf_loaded(const GsfEmu *emu)
+{
+    return emu->loaded_file();
 }
 
 GSF_API void gsf_play(GsfEmu *emu, short *out, long size)
@@ -495,12 +493,12 @@ GSF_API void gsf_play(GsfEmu *emu, short *out, long size)
     emu->play(out, size);
 }
 
-GSF_API bool gsf_track_ended(GsfEmu *emu)
+GSF_API bool gsf_track_ended(const GsfEmu *emu)
 {
     return emu->ended();
 }
 
-GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out)
+GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
 {
     GsfTags *tags   = gsf_allocate<GsfTags>();
     tags->title     = emu->get_tag("title").data();
@@ -512,7 +510,7 @@ GSF_API int gsf_get_tags(GsfEmu *emu, GsfTags **out)
     tags->copyright = emu->get_tag("copyright").data();
     tags->gsfby     = emu->get_tag("gsfby").data();
     tags->volume    = string::to_number<double>(emu->get_tag("volume")).value_or(0.0);
-    tags->length    = emu->get_length();
+    tags->length    = emu->length();
     tags->fade      = parse_duration(emu->get_tag("fade")).value_or(0);
     *out = tags;
     return 0;
@@ -523,12 +521,12 @@ GSF_API void gsf_free_tags(GsfTags *tags)
     gsf_free(tags);
 }
 
-GSF_API long gsf_tell(GsfEmu *emu)
+GSF_API long gsf_tell(const GsfEmu *emu)
 {
     return samples_to_millis(emu->tell(), emu->sample_rate(), 2);
 }
 
-GSF_API long gsf_tell_samples(GsfEmu *emu)
+GSF_API long gsf_tell_samples(const GsfEmu *emu)
 {
     return emu->tell();
 }
@@ -541,6 +539,21 @@ GSF_API void gsf_seek(GsfEmu *emu, long millis)
 GSF_API void gsf_seek_samples(GsfEmu *emu, long samples)
 {
     emu->skip(samples);
+}
+
+GSF_API void gsf_set_default_length(GsfEmu *emu, long length)
+{
+    emu->set_default_length(length);
+}
+
+GSF_API long gsf_default_length(const GsfEmu *emu, long length)
+{
+    return emu->default_length();
+}
+
+GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)
+{
+    emu->toggle_flag(GSF_INFINITE, infinite);
 }
 
 GSF_API void gsf_set_allocators(
