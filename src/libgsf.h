@@ -32,6 +32,8 @@ extern "C" {
 #define GSF_VERSION ((GSF_VERSION_MAJOR << 16) | GSF_VERSION_MINOR)
 
 typedef struct GsfEmu GsfEmu;
+typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
+typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
 
 typedef enum GsfFlags {
     GSF_INFO_ONLY   = 1 << 1,
@@ -57,6 +59,8 @@ GSF_API bool gsf_is_compatible_dll(void);
 GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
 GSF_API void gsf_delete(GsfEmu *emu);
 GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
+GSF_API int gsf_load_file_custom(GsfEmu *emu, const char *filename,
+    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn);
 GSF_API bool gsf_loaded(const GsfEmu *emu);
 GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 GSF_API bool gsf_track_ended(const GsfEmu *emu);
@@ -82,16 +86,6 @@ GSF_API void gsf_set_allocators(
     void *(*malloc_fn)(size_t),
     void *(*realloc_fn)(void *, size_t),
     void (*free_fn)(void *)
-);
-
-/* Setups functions used to read files. */
-typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
-typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
-
-GSF_API void gsf_set_file_reader(
-    void *userdata,
-    GsfReadFn read_fn,
-    GsfDeleteFileDataFn delete_fn
 );
 
 #ifdef __cplusplus

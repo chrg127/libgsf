@@ -11,8 +11,6 @@ struct GsfAllocators {
 };
 
 extern GsfAllocators allocators;
-extern GsfReadFn read_file_fn;
-extern GsfDeleteFileDataFn delete_file_data_fn;
 
 template <typename T>
 inline T *gsf_allocate(size_t size = 1)

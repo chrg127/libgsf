@@ -34,7 +34,8 @@ GsfAllocators allocators = {
     malloc, realloc, free
 };
 
-int default_read_file(void *, const char *filename, unsigned char **buf, long *size)
+int default_read_file(void *, const char *filename,
+    unsigned char **buf, long *size)
 {
     FILE *file = fopen(filename, "rb");
     if (!file)
@@ -58,8 +59,6 @@ void default_delete_file_data(unsigned char *buf)
 }
 
 void *read_file_userdata;
-GsfReadFn read_file_fn = default_read_file;
-GsfDeleteFileDataFn delete_file_data_fn = default_delete_file_data;
 
 
 
@@ -76,7 +75,8 @@ template <typename T> using Result = tl::expected<T, int>;
 struct InsensitiveCompare {
     constexpr bool operator()(const String &lhs, const String &rhs) const
     {
-        return lhs.size() == rhs.size() && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+        return lhs.size() == rhs.size()
+            && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 };
 
@@ -96,15 +96,16 @@ struct ManagedBuffer {
     std::span<const T> to_span() const { return std::span<T>(ptr.get(), size); }
 };
 
-Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath)
+Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
+    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
     u8 *buf;
     long size;
-    auto err = read_file_fn(read_file_userdata, filepath.string().c_str(), &buf, &size);
+    auto err = read_fn(read_file_userdata, filepath.string().c_str(), &buf, &size);
     if (err != 0)
         return tl::unexpected(err);
     return ManagedBuffer {
-        .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_file_data_fn},
+        .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_fn},
         .size = std::size_t(size),
     };
 }
@@ -183,7 +184,8 @@ Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
 {
     if (crc != crc32(crc32(0l, nullptr, 0), data.data(), data.size()))
         return tl::unexpected(0);
-    // uncompress first 12 bytes first, which tells us the entry point, the offset and the size of the rom
+    // uncompress first 12 bytes first, which tells us the entry point,
+    // the offset and the size of the rom
     std::array<u8, 12> tmp;
     unsigned long size = 12;
     if (uncompress(tmp.data(), &size, data.data(), data.size()) != Z_BUF_ERROR)
@@ -251,16 +253,17 @@ std::optional<String> find_lib(std::span<GSFFile> files, int n)
     return std::nullopt;
 }
 
-Result<GSFFile> load_file(fs::path filepath)
+Result<GSFFile> load_file(fs::path filepath,
+    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
     auto parsebuf = [](ManagedBuffer<u8, GsfDeleteFileDataFn> &&buf) { return parse(buf.to_span()); };
     std::array<GSFFile, MAX_LIBS> files;
-    if (auto r = read_file(filepath)
+    if (auto r = read_file(filepath, userdata, read_fn, delete_fn)
                 .and_then(parsebuf)
                 .map([&] (GSFFile &&f) { files[0] = std::move(f); }); !r)
         return tl::unexpected(r.error());
     if (auto tag = files[0].tags.find("_lib"); tag != files[0].tags.end()) {
-        if (auto r = read_file(filepath.parent_path() / tag->second)
+        if (auto r = read_file(filepath.parent_path() / tag->second, userdata, read_fn, delete_fn)
                     .and_then(parsebuf)
                     .map([&] (GSFFile &&f) {
                         files[1] = std::move(f);
@@ -270,7 +273,7 @@ Result<GSFFile> load_file(fs::path filepath)
             return tl::unexpected(r.error());
         for (auto i = 2; i < MAX_LIBS; i++) {
             if (auto libname = find_lib(std::span{files.begin(), files.begin() + i}, i); libname) {
-                if (auto r = read_file(filepath.parent_path() / libname.value())
+                if (auto r = read_file(filepath.parent_path() / libname.value(), userdata, read_fn, delete_fn)
                             .and_then(parsebuf)
                             .map([&] (GSFFile &&f) {
                                 files[i] = std::move(f);
@@ -472,13 +475,20 @@ GSF_API void gsf_delete(GsfEmu *emu)
     delete emu;
 }
 
-GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
+GSF_API int gsf_load_file_custom(GsfEmu *emu, const char *filename,
+    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
-    auto f = load_file(fs::path{filename});
+    auto f = load_file(fs::path{filename}, userdata, read_fn, delete_fn);
     if (!f)
         return f.error();
     emu->load(f.value().rom.data, std::move(f.value().tags));
     return 0;
+}
+
+GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
+{
+    return gsf_load_file_custom(emu, filename, nullptr, default_read_file,
+        default_delete_file_data);
 }
 
 GSF_API bool gsf_loaded(const GsfEmu *emu)
@@ -563,10 +573,4 @@ GSF_API void gsf_set_allocators(
     allocators.malloc_fn = malloc_fn;
     allocators.realloc_fn = realloc_fn;
     allocators.free_fn = free_fn;
-}
-
-GSF_API void gsf_set_file_reader(GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
-{
-    read_file_fn = read_fn;
-    delete_file_data_fn = delete_fn;
 }
