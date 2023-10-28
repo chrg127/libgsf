@@ -340,6 +340,7 @@ class GsfEmu {
     long max_samples = 0;
     int default_len = 0;
     bool loaded = false;
+    bool infinite = false;
 
 public:
     explicit GsfEmu(mCore *core, int sample_rate, int flags)
@@ -423,16 +424,13 @@ public:
         }
     }
 
-    void toggle_flag(unsigned which, unsigned value)
-    {
-        flags = (flags & ~which) | (value & 1) << which;
-    }
+    void set_infinite(bool value) { infinite = value; }
 
     long tell()           const { return num_samples; }
     int sample_rate()     const { return samplerate; }
     long length()         const { return samples_to_millis(max_samples, samplerate, 2); }
     long default_length() const { return default_len; }
-    bool ended()          const { return flags & GSF_INFINITE ? false : num_samples >= max_samples; }
+    bool ended()          const { return infinite ? false : num_samples >= max_samples; }
     bool loaded_file()    const { return loaded; }
 };
 
@@ -553,7 +551,7 @@ GSF_API long gsf_default_length(const GsfEmu *emu, long length)
 
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)
 {
-    emu->toggle_flag(GSF_INFINITE, infinite);
+    emu->set_infinite(infinite);
 }
 
 GSF_API void gsf_set_allocators(

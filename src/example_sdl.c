@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     }
 
     GsfEmu *emu;
-    if (gsf_new(&emu, 44100, GSF_INFINITE) != 0) {
+    if (gsf_new(&emu, 44100, 0) != 0) {
         printf("couldn't create emulator\n");
         return 1;
     }
@@ -76,6 +76,8 @@ int main(int argc, char *argv[])
         printf("couldn't load file inside emulator\n");
         return 1;
     }
+
+    gsf_set_infinite(emu, true);
 
     GsfTags *tags;
     gsf_get_tags(emu, &tags);
@@ -124,7 +126,6 @@ int main(int argc, char *argv[])
         if (get_input(&c)) {
             switch (c) {
             case 'l':
-                // printf("hello\n");
                 SDL_LockAudioDevice(dev);
                 gsf_seek(emu, 1000);
                 SDL_UnlockAudioDevice(dev);

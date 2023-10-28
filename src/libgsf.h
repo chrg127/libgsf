@@ -36,7 +36,6 @@ typedef struct GsfEmu GsfEmu;
 typedef enum GsfFlags {
     GSF_INFO_ONLY   = 1 << 1,
     GSF_MULTI       = 1 << 2,
-    GSF_INFINITE    = 1 << 3,
 } GsfFlags;
 
 typedef struct GsfTags {
