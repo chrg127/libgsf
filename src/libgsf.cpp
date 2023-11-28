@@ -4,7 +4,9 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <algorithm>
+#include <limits>
 #include <span>
 #include <array>
 #include <vector>
@@ -15,6 +17,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <optional>
+#include <bit>
 #include <strings.h>
 #include <zlib.h>
 #include <tl/expected.hpp>
@@ -141,19 +144,17 @@ std::optional<int> parse_duration(std::string_view s)
 
 constexpr long samples_to_millis(long samples, int sample_rate, int channels)
 {
-    auto rate    = sample_rate * 2;
-    auto seconds = samples / rate;
-    // because ^ is an integer (and we return millis), right-hand expression
-    // calculates the number of samples that composes the fractional part
-    // (of the above division), then converts to millis
-    return seconds * 1000 + (samples - seconds * rate) * 1000 / rate;
+    auto rate = sample_rate * channels;
+    auto secs = samples / rate;
+    auto frac = samples - secs * rate; // samples % rate;
+    return secs * 1000 + frac * 1000 / rate;
 }
 
 constexpr long millis_to_samples(long millis, int sample_rate, int channels)
 {
-	auto seconds = millis / 1000;
-	millis -= seconds * 1000;
-	return (seconds * sample_rate + millis * sample_rate / 1000) * channels;
+    auto secs = millis / 1000;
+    auto frac = millis - secs * 1000; // millis % 1000;
+    return (secs * sample_rate + frac * sample_rate / 1000) * channels;
 }
 
 
@@ -312,11 +313,7 @@ public:
     void take(std::span<short> out)
     {
         auto index = BUF_SIZE - read;
-        std::copy(
-            std::begin(samples) + index,
-            std::begin(samples) + index + out.size(),
-            out.begin()
-        );
+        std::copy_n(std::begin(samples) + index, out.size(), out.begin());
         read -= out.size();
     }
 
@@ -341,9 +338,9 @@ class GsfEmu {
     TagMap tags;
     long num_samples = 0;
     long max_samples = 0;
-    int default_len = 0;
-    bool loaded = false;
-    bool infinite = false;
+    int default_len  = 0;
+    bool loaded      = false;
+    bool infinite    = false;
 
 public:
     explicit GsfEmu(mCore *core, int sample_rate, int flags)
@@ -356,7 +353,7 @@ public:
         mCoreInitConfig(core, nullptr);
         core->setAudioBufferSize(core, NUM_SAMPLES);
         auto clock_rate = core->frequency(core);
-        for (auto i = 0; i < 2; i++)
+        for (auto i = 0; i < NUM_CHANNELS; i++)
             blip_set_rates(core->getAudioChannel(core, i), clock_rate, sample_rate);
         mCoreOptions opts = {
             .skipBios = true,
@@ -382,7 +379,7 @@ public:
         core->reset(core);
         this->tags = std::move(tags);
         auto length = parse_duration(get_tag("length")).value_or(default_len);
-        max_samples = millis_to_samples(length, samplerate, 2);
+        max_samples = millis_to_samples(length, samplerate, num_channels());
         loaded = true;
         return 0;
     }
@@ -423,7 +420,7 @@ public:
     {
         default_len = length;
         if (loaded && max_samples == 0) {
-            max_samples = millis_to_samples(default_len, samplerate, 2);
+            max_samples = millis_to_samples(default_len, samplerate, num_channels());
         }
     }
 
@@ -431,11 +428,14 @@ public:
 
     long tell()           const { return num_samples; }
     int sample_rate()     const { return samplerate; }
-    long length()         const { return samples_to_millis(max_samples, samplerate, 2); }
+    long length()         const { return samples_to_millis(max_samples, samplerate, num_channels()); }
     long default_length() const { return default_len; }
     bool ended()          const { return infinite ? false : num_samples >= max_samples; }
     bool loaded_file()    const { return loaded; }
+    int num_channels()    const { return NUM_CHANNELS; }
 };
+
+
 
 // mGBA by default spits out a lot of log stuff. This and the call to
 // mLogSetDefaultLogger() in gsf_new makes sure to disable all that.
@@ -518,7 +518,6 @@ GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
     tags->copyright = emu->get_tag("copyright").data();
     tags->gsfby     = emu->get_tag("gsfby").data();
     tags->volume    = string::to_number<double>(emu->get_tag("volume")).value_or(0.0);
-    tags->length    = emu->length();
     tags->fade      = parse_duration(emu->get_tag("fade")).value_or(0);
     *out = tags;
     return 0;
@@ -527,6 +526,11 @@ GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
 GSF_API void gsf_free_tags(GsfTags *tags)
 {
     gsf_free(tags);
+}
+
+GSF_API long gsf_length(GsfEmu *emu)
+{
+    return samples_to_millis(emu->length(), emu->sample_rate(), emu->num_channels());
 }
 
 GSF_API long gsf_tell(const GsfEmu *emu)

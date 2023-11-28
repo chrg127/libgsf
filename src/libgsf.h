@@ -50,7 +50,6 @@ typedef struct GsfTags {
     const char *copyright;
     const char *gsfby;
     double volume;
-    int length;
     int fade;
 } GsfTags;
 
@@ -66,6 +65,7 @@ GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 GSF_API bool gsf_track_ended(const GsfEmu *emu);
 GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out);
 GSF_API void gsf_free_tags(GsfTags *tags);
+GSF_API long gsf_length(GsfEmu *emu);
 GSF_API long gsf_tell(const GsfEmu *emu);
 GSF_API long gsf_tell_samples(const GsfEmu *emu);
 GSF_API void gsf_seek(GsfEmu *emu, long millis);
@@ -74,7 +74,6 @@ GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
 GSF_API long gsf_default_length(const GsfEmu *emu, long length);
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
 
-// gsf_set_fade
 // gsf_set_tempo
 // gsf_channel_count -- probably should be a constant
 // gsf_channel_name

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 project(libgsf VERSION 1.0 LANGUAGES C CXX)
 
 include(CMakePackageConfigHelpers)
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 # libgsf
 
@@ -27,8 +28,8 @@ find_package(SDL2 REQUIRED)
 
 add_executable(libgsf
     src/libgsf.cpp
-    src/example.c
-    # src/example_sdl.c
+    # src/example.c
+    src/example_sdl.c
     ${ARM_SRC}
     ${GBA_SRC}
     ${CORE_SRC}

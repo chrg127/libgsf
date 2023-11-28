@@ -77,8 +77,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    gsf_set_infinite(emu, true);
-
     GsfTags *tags;
     gsf_get_tags(emu, &tags);
     printf(
@@ -91,13 +89,13 @@ int main(int argc, char *argv[])
         "copyright: %s\n"
         "gsfby: %s\n"
         "volume: %f\n"
-        "length: %d\n"
         "fade: %d\n",
         tags->title, tags->artist, tags->game,
         tags->year, tags->genre, tags->comment,
         tags->copyright, tags->gsfby,
-        tags->volume, tags->length, tags->fade
+        tags->volume, tags->fade
     );
+    printf("length: %d\n", gsf_length(emu));
     gsf_free_tags(tags);
 
     term_init();
