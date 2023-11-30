@@ -1,6 +1,6 @@
 #pragma once
 
-#include "libgsf.h"
+#include "gsf.h"
 
 #include <limits>
 

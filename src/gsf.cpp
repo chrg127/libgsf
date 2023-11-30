@@ -1,4 +1,4 @@
-#include "libgsf.h"
+#include "gsf.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -1,4 +1,4 @@
-#include "libgsf.h"
+#include "gsf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
         tags->title, tags->artist, tags->game,
         tags->year, tags->genre, tags->comment,
         tags->copyright, tags->gsfby,
-        tags->volume, tags->length, tags->fade
+        tags->volume, tags->fade
     );
     gsf_free_tags(tags);
 

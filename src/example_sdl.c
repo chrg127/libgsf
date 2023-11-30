@@ -1,4 +1,4 @@
-#include "libgsf.h"
+#include "gsf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,8 +48,26 @@ void sdl_callback(void *userdata, unsigned char *stream, int length)
     GsfEmu *emu = (GsfEmu *) userdata;
     memset(stream, 0, length);
     if (!gsf_track_ended(emu)) {
+        short samples1[BUF_SIZE];
+        short samples2[BUF_SIZE];
+        gsf_play(emu, samples1, BUF_SIZE);
+        gsf_play(emu, samples2, BUF_SIZE);
+
+        // [] [] [] []
+        //    ^     ^
         short samples[BUF_SIZE];
-        gsf_play(emu, samples, BUF_SIZE);
+
+        for (int i = 0; i < BUF_SIZE / 2; i++) {
+            samples[i] = samples1[i*2];
+        }
+
+        for (int i = 0; i < BUF_SIZE / 2; i++) {
+            samples[i + BUF_SIZE / 2] = samples2[i*2];
+        }
+
+        for (int i = 0; i < BUF_SIZE; i++)
+            samples[i] /= 2;
+
         memcpy(stream, samples, sizeof(samples));
     }
     printf("\r%d samples, %d millis, %d seconds",
