@@ -76,14 +76,21 @@ using String = std::basic_string<char, std::char_traits<char>, GsfAllocator<char
 template <typename T> using Result = tl::expected<T, int>;
 
 struct InsensitiveCompare {
-    constexpr bool operator()(const String &lhs, const String &rhs) const
+    bool operator()(const String &lhs, const String &rhs) const
     {
         return lhs.size() == rhs.size()
             && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 };
 
-using TagMap = std::unordered_map<String, String, std::hash<String>, InsensitiveCompare>;
+// GCC version < 10 doesn't handle std::hash<std::basic_string> with custom allocators
+struct StringHash {
+    std::size_t operator()(const String &s) const noexcept {
+        return std::hash<std::string_view>{}(s);
+    }
+};
+
+using TagMap = std::unordered_map<String, String, StringHash, InsensitiveCompare>;
 
 template <typename T>
 u32 read4(T ptr)

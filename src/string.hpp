@@ -99,6 +99,17 @@ inline void trim_in_place(T &s)
     s.erase(s.begin(), i);
 }
 
+template <typename T>
+std::from_chars_result from_chars_double(const char *first, const char *last, double &value)
+{
+    char *endptr;
+    value = strtod(first, &endptr);
+    std::from_chars_result res;
+    res.ptr = endptr,
+    res.ec = static_cast<std::errc>(errno);
+    return res;
+}
+
 template <typename T = int, typename TStr = std::string>
 inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
     requires std::is_integral_v<T> || std::is_floating_point_v<T>
@@ -107,7 +118,9 @@ inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
         T value = 0;
         std::from_chars_result res;
         if constexpr(std::is_floating_point_v<T>)
-            res = std::from_chars(start, end, value);
+            // GCC version < 11 doesn't have std::from_chars<double>, and this version
+            // is still installed in some modern distros (debian stable, WSL ubuntu)
+            res = from_chars_double<T>(start, end, value);
         else
             res = std::from_chars(start, end, value, base);
         if (res.ec != std::errc() || res.ptr != end)
