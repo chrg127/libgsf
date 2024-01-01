@@ -20,7 +20,7 @@ set(GIT_REV -1)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mgba/src/core/version.c.in ${CMAKE_CURRENT_BINARY_DIR}/mgba/version.c)
 list(APPEND UTIL_SRC ${CMAKE_CURRENT_BINARY_DIR}/mgba/version.c)
 
-target_sources(gsf
+target_sources(libgsf
     PRIVATE
         ${ARM_SRC}
         ${GBA_SRC}
@@ -30,4 +30,17 @@ target_sources(gsf
         ${CORE_VFS_SRC}
         ${THIRD_PARTY_SRC}
         mgba/src/third-party/blip_buf/blip_buf.c
+)
+
+target_compile_definitions(libgsf
+    PRIVATE
+        HAVE_LOCALE
+        MINIMAL_CORE
+)
+
+target_include_directories(libgsf
+    PRIVATE
+        expected/include
+        mgba/include
+        mgba/src
 )
