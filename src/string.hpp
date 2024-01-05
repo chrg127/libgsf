@@ -100,7 +100,7 @@ inline void trim_in_place(T &s)
 }
 
 template <typename T>
-std::from_chars_result from_chars_double(const char *first, const char *last, double &value)
+std::from_chars_result from_chars_double(const char *first, const char *, double &value)
 {
     char *endptr;
     value = strtod(first, &endptr);

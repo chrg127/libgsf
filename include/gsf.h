@@ -53,6 +53,12 @@ typedef struct GsfTags {
     int fade;
 } GsfTags;
 
+typedef struct GsfAllocators {
+    void *(*malloc)(size_t, void *userdata);
+    void  (*free)(void *, void *userdata);
+    void *userdata;
+} GsfAllocators;
+
 GSF_API unsigned int gsf_get_version(void);
 GSF_API bool gsf_is_compatible_dll(void);
 GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
@@ -71,7 +77,7 @@ GSF_API long gsf_tell_samples(const GsfEmu *emu);
 GSF_API void gsf_seek(GsfEmu *emu, long millis);
 GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);
 GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
-GSF_API long gsf_default_length(const GsfEmu *emu, long length);
+GSF_API long gsf_default_length(const GsfEmu *emu);
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
 
 // gsf_set_tempo
@@ -81,11 +87,7 @@ GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
 // gsf_set_channel_volume
 
 /* memory allocation customization */
-GSF_API void gsf_set_allocators(
-    void *(*malloc_fn)(size_t),
-    void *(*realloc_fn)(void *, size_t),
-    void (*free_fn)(void *)
-);
+GSF_API void gsf_set_allocators(GsfAllocators *allocators);
 
 #ifdef __cplusplus
 }

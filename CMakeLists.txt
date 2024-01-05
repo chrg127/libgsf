@@ -7,6 +7,7 @@ endif()
 project(libgsf VERSION 0.1 LANGUAGES C CXX)
 
 option(BUILD_EXAMPLES "Build provided examples" OFF)
+option(BUILD_WITH_ASAN "Build using ASAN" OFF)
 
 include(GNUInstallDirs)
 include(InstallRequiredSystemLibraries)
@@ -33,8 +34,6 @@ add_subdirectory(external)
 
 add_library(libgsf::libgsf ALIAS libgsf)
 
-message(CMAKE_INSTALL_INCLUDEDIR = ${CMAKE_INSTALL_INCLUDEDIR})
-
 target_include_directories(${PROJECT_NAME}
     PUBLIC
         # add directory include/ to include directories
@@ -44,6 +43,11 @@ target_include_directories(${PROJECT_NAME}
 )
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
+
+target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
+if (BUILD_WITH_ASAN)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=address)
+endif()
 
 target_link_libraries(${PROJECT_NAME} z)
 
@@ -88,7 +92,12 @@ install(
 if (BUILD_EXAMPLES)
     message("simple example will be built")
     add_executable(example src/example.c)
-    target_link_libraries(example libgsf)
+    if (BUILD_WITH_ASAN)
+        target_link_libraries(example asan libgsf)
+    else()
+        target_link_libraries(example libgsf)
+    endif()
+
 
     find_package(SDL2)
     if (SDL2_FOUND)
@@ -96,7 +105,11 @@ if (BUILD_EXAMPLES)
         add_executable(example_sdl src/example_sdl.c)
         target_include_directories(example_sdl PRIVATE ${SDL2_INCLUDE_DIRS})
         target_link_directories(example_sdl PRIVATE ${SDL2_LIBRARY_DIRS})
-        target_link_libraries(example_sdl ${SDL2_LIBRARIES} libgsf)
+        if (BUILD_WITH_ASAN)
+            target_link_libraries(example_sdl asan ${SDL2_LIBRARIES} libgsf)
+        else()
+            target_link_libraries(example_sdl ${SDL2_LIBRARIES} libgsf)
+        endif()
     else()
         message("SDL2 not found, cannot build SDL2 example")
     endif()

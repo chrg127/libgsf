@@ -33,9 +33,16 @@
 
 /* allocation */
 
-GsfAllocators allocators = {
-    malloc, realloc, free
-};
+namespace detail {
+
+void *malloc(size_t size, void *) {
+    return ::malloc(size);
+}
+void free(void *p, void *) { ::free(p); }
+
+} // namespace detail
+
+GsfAllocators allocators = { detail::malloc, detail::free, nullptr};
 
 int default_read_file(void *, const char *filename,
     unsigned char **buf, long *size)
@@ -49,7 +56,7 @@ int default_read_file(void *, const char *filename,
     *buf = gsf_allocate<unsigned char>(*size);
     size_t bytes_read = fread(*buf, sizeof(char), *size, file);
     if (bytes_read < (size_t)*size) {
-        gsf_free(*buf);
+        allocators.free(*buf, allocators.userdata);
         return 1;
     }
     fclose(file);
@@ -58,7 +65,7 @@ int default_read_file(void *, const char *filename,
 
 void default_delete_file_data(unsigned char *buf)
 {
-    gsf_free(buf);
+    allocators.free(buf, allocators.userdata);
 }
 
 void *read_file_userdata;
@@ -90,7 +97,7 @@ struct StringHash {
     }
 };
 
-using TagMap = std::unordered_map<String, String, StringHash, InsensitiveCompare>;
+using TagMap = std::unordered_map<String, String, StringHash, InsensitiveCompare, GsfAllocator<std::pair<const String, String>>>;
 
 template <typename T>
 u32 read4(T ptr)
@@ -107,7 +114,7 @@ struct ManagedBuffer {
 };
 
 Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
-    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
+    void *, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
     u8 *buf;
     long size;
@@ -122,6 +129,8 @@ Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
 
 std::optional<int> parse_duration(std::string_view s)
 {
+    if (s.size() == 0)
+        return std::nullopt;
     std::array<int, 4> numbers = { 0, 0, 0, 0 };
     std::array<int, 4> multipliers = { 60 * 60 * 1000, 60 * 1000, 1000, 1 };
     bool decimal = false;
@@ -144,7 +153,7 @@ std::optional<int> parse_duration(std::string_view s)
     if (i > 0)
         return std::nullopt;
     int n = 0;
-    for (int i = 4; i >= 0; i--)
+    for (int i = 0; i < 4; i++)
         n += numbers[i] * multipliers[i];
     return n;
 }
@@ -230,7 +239,7 @@ Result<GSFFile> parse(std::span<u8> data)
         return tl::unexpected(0);
     if (data[0] != 'P' || data[1] != 'S' || data[2] != 'F' || data[3] != 0x22)
         return tl::unexpected(0);
-    int cursor = 4;
+    size_t cursor = 4;
     auto readb = [&](size_t bytes) { auto p = &data[cursor]; cursor += bytes; return std::span{p, bytes}; };
     u32 reserved_length = read4(readb(4));
     u32 program_length  = read4(readb(4));
@@ -242,7 +251,7 @@ Result<GSFFile> parse(std::span<u8> data)
     auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};
     if (!rom)
         return tl::unexpected(rom.error());
-    auto tags = std::memcmp(readb(5).data(), "[TAG]", 5) == 0
+    auto tags = cursor < data.size() - 5 && std::memcmp(readb(5).data(), "[TAG]", 5) == 0
               ? readb(std::min<size_t>(data.size() - cursor, 50000u))
               : std::span<u8>{};
     return GSFFile {
@@ -264,7 +273,7 @@ std::optional<String> find_lib(std::span<GSFFile> files, int n)
 Result<GSFFile> load_file(fs::path filepath,
     void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
-    auto parsebuf = [](ManagedBuffer<u8, GsfDeleteFileDataFn> &&buf) { return parse(buf.to_span()); };
+    auto parsebuf = [](ManagedBuffer<u8, GsfDeleteFileDataFn> buf) { return parse(buf.to_span()); };
     std::array<GSFFile, MAX_LIBS> files;
     if (auto r = read_file(filepath, userdata, read_fn, delete_fn)
                 .and_then(parsebuf)
@@ -306,7 +315,7 @@ constexpr auto BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right);
 
 class AVStream : public mAVStream {
-    GSF_IMPLEMENTS_ALLOCATORS
+    GSF_IMPLEMENT_ALLOCATORS
 
 public:
     short samples[BUF_SIZE];
@@ -330,13 +339,13 @@ public:
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
 {
     auto *self = (AVStream *) stream;
-    auto samples_read1 = blip_read_samples(left,  self->samples,   NUM_SAMPLES, true);
-    auto samples_read2 = blip_read_samples(right, self->samples+1, NUM_SAMPLES, true);
+    /*auto samples_read1 =*/ blip_read_samples(left,  self->samples,   NUM_SAMPLES, true);
+    /*auto samples_read2 =*/ blip_read_samples(right, self->samples+1, NUM_SAMPLES, true);
     self->read += BUF_SIZE;
 }
 
 class GsfEmu {
-    GSF_IMPLEMENTS_ALLOCATORS
+    GSF_IMPLEMENT_ALLOCATORS
 
     mCore *core;
     AVStream av;
@@ -362,11 +371,10 @@ public:
         auto clock_rate = core->frequency(core);
         for (auto i = 0; i < NUM_CHANNELS; i++)
             blip_set_rates(core->getAudioChannel(core, i), clock_rate, sample_rate);
-        mCoreOptions opts = {
-            .skipBios = true,
-            .useBios = false,
-            .sampleRate = static_cast<unsigned>(sample_rate),
-        };
+        mCoreOptions opts = {};
+        opts.skipBios = true;
+        opts.useBios = false;
+        opts.sampleRate = static_cast<unsigned>(sample_rate);
         mCoreConfigLoadDefaults(&core->config, &opts);
         auto *emu = new GsfEmu(core, sample_rate, flags);
         core->setAVStream(core, &emu->av);
@@ -532,7 +540,7 @@ GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
 
 GSF_API void gsf_free_tags(GsfTags *tags)
 {
-    gsf_free(tags);
+    allocators.free(tags, allocators.userdata);
 }
 
 GSF_API long gsf_length(GsfEmu *emu)
@@ -565,7 +573,7 @@ GSF_API void gsf_set_default_length(GsfEmu *emu, long length)
     emu->set_default_length(length);
 }
 
-GSF_API long gsf_default_length(const GsfEmu *emu, long length)
+GSF_API long gsf_default_length(const GsfEmu *emu)
 {
     return emu->default_length();
 }
@@ -575,13 +583,7 @@ GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)
     emu->set_infinite(infinite);
 }
 
-GSF_API void gsf_set_allocators(
-    void *(*malloc_fn)(size_t),
-    void *(*realloc_fn)(void *, size_t),
-    void (*free_fn)(void *)
-)
+GSF_API void gsf_set_allocators(GsfAllocators *allocators)
 {
-    allocators.malloc_fn = malloc_fn;
-    allocators.realloc_fn = realloc_fn;
-    allocators.free_fn = free_fn;
+    ::allocators = *allocators;
 }
