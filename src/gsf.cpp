@@ -469,7 +469,7 @@ GSF_API unsigned int gsf_get_version(void)
     return GSF_VERSION;
 }
 
-GSF_API bool gsf_is_compatible_dll(void)
+GSF_API bool gsf_is_compatible_version(void)
 {
     unsigned major = gsf_get_version() >> 16;
     return major == GSF_VERSION_MAJOR;
@@ -516,7 +516,7 @@ GSF_API void gsf_play(GsfEmu *emu, short *out, long size)
     emu->play(out, size);
 }
 
-GSF_API bool gsf_track_ended(const GsfEmu *emu)
+GSF_API bool gsf_ended(const GsfEmu *emu)
 {
     return emu->ended();
 }
