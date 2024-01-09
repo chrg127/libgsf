@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
     );
     gsf_free_tags(tags);
 
-    while (!gsf_track_ended(emu)) {
+    while (!gsf_ended(emu)) {
         short samples[16];
         gsf_play(emu, samples, 16);
         printf("\r%d samples, %d millis %d seconds", gsf_tell_samples(emu), gsf_tell(emu), gsf_tell(emu) / 1000);

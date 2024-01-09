@@ -47,7 +47,7 @@ void sdl_callback(void *userdata, unsigned char *stream, int length)
 {
     GsfEmu *emu = (GsfEmu *) userdata;
     memset(stream, 0, length);
-    if (!gsf_track_ended(emu)) {
+    if (!gsf_ended(emu)) {
         short samples[BUF_SIZE];
         gsf_play(emu, samples, BUF_SIZE);
         memcpy(stream, samples, sizeof(samples));
