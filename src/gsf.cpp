@@ -543,7 +543,7 @@ GSF_API void gsf_free_tags(GsfTags *tags)
 
 GSF_API long gsf_length(GsfEmu *emu)
 {
-    return samples_to_millis(emu->length(), emu->sample_rate(), emu->num_channels());
+    return emu->length();
 }
 
 GSF_API long gsf_tell(const GsfEmu *emu)
