@@ -68,8 +68,6 @@ void default_delete_file_data(unsigned char *buf)
     allocators.free(buf, allocators.userdata);
 }
 
-void *read_file_userdata;
-
 
 
 /* utilities */
@@ -114,11 +112,11 @@ struct ManagedBuffer {
 };
 
 Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
-    void *, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
+    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
     u8 *buf;
     long size;
-    auto err = read_fn(read_file_userdata, filepath.string().c_str(), &buf, &size);
+    auto err = read_fn(userdata, filepath.string().c_str(), &buf, &size);
     if (err != 0)
         return tl::unexpected(err);
     return ManagedBuffer {
