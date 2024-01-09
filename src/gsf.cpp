@@ -198,18 +198,18 @@ struct GSFFile {
 Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
 {
     if (crc != crc32(crc32(0l, nullptr, 0), data.data(), data.size()))
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_INVALID_CRC);
     // uncompress first 12 bytes first, which tells us the entry point,
     // the offset and the size of the rom
     std::array<u8, 12> tmp;
     unsigned long size = 12;
     if (uncompress(tmp.data(), &size, data.data(), data.size()) != Z_BUF_ERROR)
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_UNCOMPRESS_ERROR);
     // re-uncompress, now with the real size;
     size = read4(&tmp[8]) + 12;
     auto uncompressed = Vector<u8>(size, 0);
     if (uncompress(uncompressed.data(), &size, data.data(), data.size()) != Z_OK)
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_UNCOMPRESS_ERROR);
     uncompressed.erase(uncompressed.begin(), uncompressed.begin() + 12);
     return Rom {
         .entry_point = read4(&tmp[0]),
@@ -234,16 +234,16 @@ TagMap parse_tags(std::string_view tags)
 Result<GSFFile> parse(std::span<u8> data)
 {
     if (data.size() < 0x10 || data.size() > 0x4000000)
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_INVALID_FILE_SIZE);
     if (data[0] != 'P' || data[1] != 'S' || data[2] != 'F' || data[3] != 0x22)
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_INVALID_HEADER);
     size_t cursor = 4;
     auto readb = [&](size_t bytes) { auto p = &data[cursor]; cursor += bytes; return std::span{p, bytes}; };
     u32 reserved_length = read4(readb(4));
     u32 program_length  = read4(readb(4));
     u32 crc             = read4(readb(4));
     if (reserved_length + program_length + 16 > data.size())
-        return tl::unexpected(0);
+        return tl::unexpected(GSF_INVALID_SECTION_LENGTH);
     // auto reserved = readb(reserved_length);
     readb(reserved_length);
     auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};

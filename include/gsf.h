@@ -74,6 +74,15 @@ typedef struct GsfAllocators {
     void *userdata;
 } GsfAllocators;
 
+
+typedef enum GsfError {
+    GSF_INVALID_FILE_SIZE = 1,
+    GSF_INVALID_HEADER,
+    GSF_INVALID_SECTION_LENGTH,
+    GSF_INVALID_CRC,
+    GSF_UNCOMPRESS_ERROR,
+} GsfError;
+
 /*
  * These two functions get and check the library version, respectively.
  * They can be used to test if you've got any installation errors.
