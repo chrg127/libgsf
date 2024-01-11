@@ -7,6 +7,9 @@ files. At the time of writing, it supports only the very simple stuff:
 - Playing samples
 - Reading tags
 
+Note that the library is currently in beta. While it's already usable, you may
+find that by upgrading some stuff might break.
+
 # Compiling
 
 Compiling is done through CMake. Use the following commands to build:
