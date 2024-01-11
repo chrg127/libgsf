@@ -29,7 +29,7 @@ extern "C" {
     #endif
 #endif
 
-#define GSF_VERSION_MAJOR 1
+#define GSF_VERSION_MAJOR 0
 #define GSF_VERSION_MINOR 1
 #define GSF_VERSION ((GSF_VERSION_MAJOR << 16) | GSF_VERSION_MINOR)
 
@@ -74,14 +74,36 @@ typedef struct GsfAllocators {
     void *userdata;
 } GsfAllocators;
 
-
-typedef enum GsfError {
+/* Errors returned by the library. */
+typedef enum GsfErrorCode {
     GSF_INVALID_FILE_SIZE = 1,
+    GSF_ALLOCATION_FAILED,
     GSF_INVALID_HEADER,
     GSF_INVALID_SECTION_LENGTH,
     GSF_INVALID_CRC,
     GSF_UNCOMPRESS_ERROR,
+} GsfErrorCode;
+
+/*
+ * How error handling for this library works:
+ * This struct is returned by any function that could potentially error-out.
+ * `code` represent an error code returned by the function. If it's 0, it's
+ * guaranteed that the function returned success, whatever the value of `from`
+ * is.
+ * `from` represent where we got the error code. Fortunately, there are only
+ * two values for it: 0, meaning it's a system error, and 1, meaning it's a
+ * library-specific error.
+ * If you just want to check for success, just check if <expr>.code == 0.
+ */
+typedef struct GsfError {
+    int code;
+    int from;
 } GsfError;
+
+static const GsfError GSF_NO_ERROR = {
+    .code = 0,
+    .from = 0,
+};
 
 /*
  * These two functions get and check the library version, respectively.
@@ -98,7 +120,7 @@ GSF_API bool gsf_is_compatible_version(void);
  *   channels instead of a single one.
  * (NOTE: these flags are still unsupported!)
  */
-GSF_API int gsf_new(GsfEmu **out, int frequency, int flags);
+GSF_API GsfError gsf_new(GsfEmu **out, int frequency, int flags);
 
 /* Deletes an emulator object. */
 GSF_API void gsf_delete(GsfEmu *emu);
@@ -107,7 +129,7 @@ GSF_API void gsf_delete(GsfEmu *emu);
  * Loads a file and any corresponding library files inside an emulator.
  * `filename` is assumed to be a valid file path.
  */
-GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
+GSF_API GsfError gsf_load_file(GsfEmu *emu, const char *filename);
 
 /*
  * Same as above, but with custom functions for reading and deleting file data.
@@ -115,7 +137,7 @@ GSF_API int gsf_load_file(GsfEmu *emu, const char *filename);
  * It can return any OS error codes it finds.
  * delete_fn should delete the memory allocated by read_fn.
  */
-GSF_API int gsf_load_file_custom(GsfEmu *emu, const char *filename,
+GSF_API GsfError gsf_load_file_custom(GsfEmu *emu, const char *filename,
     void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn);
 
 /* Checks if any files are loaded inside an emulator. */
@@ -131,7 +153,7 @@ GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 GSF_API bool gsf_ended(const GsfEmu *emu);
 
 /* Returns the tags found from a loaded GSF file. */
-GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out);
+GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out);
 
 /* Frees tags taken from `gsf_get_tags`. */
 GSF_API void gsf_free_tags(GsfTags *tags);

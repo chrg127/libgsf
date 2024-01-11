@@ -67,12 +67,12 @@ int main(int argc, char *argv[])
     }
 
     GsfEmu *emu;
-    if (gsf_new(&emu, 44100, 0) != 0) {
+    if (gsf_new(&emu, 44100, 0).code != 0) {
         printf("couldn't create emulator\n");
         return 1;
     }
 
-    if (gsf_load_file(emu, argv[1]) != 0) {
+    if (gsf_load_file(emu, argv[1]).code != 0) {
         printf("couldn't load file inside emulator\n");
         return 1;
     }

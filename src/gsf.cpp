@@ -78,7 +78,7 @@ using u8 = unsigned char;
 using u32 = uint32_t;
 template <typename T> using Vector = std::vector<T, GsfAllocator<T>>;
 using String = std::basic_string<char, std::char_traits<char>, GsfAllocator<char>>;
-template <typename T> using Result = tl::expected<T, int>;
+template <typename T> using Result = tl::expected<T, GsfError>;
 
 struct InsensitiveCompare {
     bool operator()(const String &lhs, const String &rhs) const
@@ -118,7 +118,7 @@ Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
     long size;
     auto err = read_fn(userdata, filepath.string().c_str(), &buf, &size);
     if (err != 0)
-        return tl::unexpected(err);
+        return tl::unexpected(GsfError { .code = err, .from = 0 });
     return ManagedBuffer {
         .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_fn},
         .size = std::size_t(size),
@@ -171,6 +171,8 @@ constexpr long millis_to_samples(long millis, int sample_rate, int channels)
     return (secs * sample_rate + frac * sample_rate / 1000) * channels;
 }
 
+GsfError make_err(GsfErrorCode code) { return { .code = code, .from = 1 }; }
+
 
 
 /* gsf parsing */
@@ -198,18 +200,18 @@ struct GSFFile {
 Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
 {
     if (crc != crc32(crc32(0l, nullptr, 0), data.data(), data.size()))
-        return tl::unexpected(GSF_INVALID_CRC);
+        return tl::unexpected(make_err(GSF_INVALID_CRC));
     // uncompress first 12 bytes first, which tells us the entry point,
     // the offset and the size of the rom
     std::array<u8, 12> tmp;
     unsigned long size = 12;
     if (uncompress(tmp.data(), &size, data.data(), data.size()) != Z_BUF_ERROR)
-        return tl::unexpected(GSF_UNCOMPRESS_ERROR);
+        return tl::unexpected(make_err(GSF_UNCOMPRESS_ERROR));
     // re-uncompress, now with the real size;
     size = read4(&tmp[8]) + 12;
     auto uncompressed = Vector<u8>(size, 0);
     if (uncompress(uncompressed.data(), &size, data.data(), data.size()) != Z_OK)
-        return tl::unexpected(GSF_UNCOMPRESS_ERROR);
+        return tl::unexpected(make_err(GSF_UNCOMPRESS_ERROR));
     uncompressed.erase(uncompressed.begin(), uncompressed.begin() + 12);
     return Rom {
         .entry_point = read4(&tmp[0]),
@@ -234,16 +236,16 @@ TagMap parse_tags(std::string_view tags)
 Result<GSFFile> parse(std::span<u8> data)
 {
     if (data.size() < 0x10 || data.size() > 0x4000000)
-        return tl::unexpected(GSF_INVALID_FILE_SIZE);
+        return tl::unexpected(make_err(GSF_INVALID_FILE_SIZE));
     if (data[0] != 'P' || data[1] != 'S' || data[2] != 'F' || data[3] != 0x22)
-        return tl::unexpected(GSF_INVALID_HEADER);
+        return tl::unexpected(make_err(GSF_INVALID_HEADER));
     size_t cursor = 4;
     auto readb = [&](size_t bytes) { auto p = &data[cursor]; cursor += bytes; return std::span{p, bytes}; };
     u32 reserved_length = read4(readb(4));
     u32 program_length  = read4(readb(4));
     u32 crc             = read4(readb(4));
     if (reserved_length + program_length + 16 > data.size())
-        return tl::unexpected(GSF_INVALID_SECTION_LENGTH);
+        return tl::unexpected(make_err(GSF_INVALID_SECTION_LENGTH));
     // auto reserved = readb(reserved_length);
     readb(reserved_length);
     auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};
@@ -363,7 +365,8 @@ public:
     static Result<GsfEmu *> create(int sample_rate, int flags)
     {
         auto core = GBACoreCreate();
-        core->init(core);
+        if (!core->init(core))
+            return tl::unexpected(make_err(GSF_ALLOCATION_FAILED));
         mCoreInitConfig(core, nullptr);
         core->setAudioBufferSize(core, NUM_SAMPLES);
         auto clock_rate = core->frequency(core);
@@ -375,6 +378,10 @@ public:
         opts.sampleRate = static_cast<unsigned>(sample_rate);
         mCoreConfigLoadDefaults(&core->config, &opts);
         auto *emu = new GsfEmu(core, sample_rate, flags);
+        if (!emu) {
+            core->deinit(core);
+            return tl::unexpected(make_err(GSF_ALLOCATION_FAILED));
+        }
         core->setAVStream(core, &emu->av);
         return emu;
     }
@@ -473,14 +480,14 @@ GSF_API bool gsf_is_compatible_version(void)
     return major == GSF_VERSION_MAJOR;
 }
 
-GSF_API int gsf_new(GsfEmu **out, int sample_rate, int flags)
+GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags)
 {
     auto emu = GsfEmu::create(sample_rate, flags);
     if (!emu)
         return emu.error();
     *out = emu.value();
     mLogSetDefaultLogger(&empty_logger);
-    return 0;
+    return GSF_NO_ERROR;
 }
 
 GSF_API void gsf_delete(GsfEmu *emu)
@@ -488,17 +495,17 @@ GSF_API void gsf_delete(GsfEmu *emu)
     delete emu;
 }
 
-GSF_API int gsf_load_file_custom(GsfEmu *emu, const char *filename,
+GSF_API GsfError gsf_load_file_custom(GsfEmu *emu, const char *filename,
     void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
 {
     auto f = load_file(fs::path{filename}, userdata, read_fn, delete_fn);
     if (!f)
         return f.error();
     emu->load(f.value().rom.data, std::move(f.value().tags));
-    return 0;
+    return GSF_NO_ERROR;
 }
 
-GSF_API int gsf_load_file(GsfEmu *emu, const char *filename)
+GSF_API GsfError gsf_load_file(GsfEmu *emu, const char *filename)
 {
     return gsf_load_file_custom(emu, filename, nullptr, default_read_file,
         default_delete_file_data);
@@ -519,9 +526,11 @@ GSF_API bool gsf_ended(const GsfEmu *emu)
     return emu->ended();
 }
 
-GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
+GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out)
 {
     GsfTags *tags   = gsf_allocate<GsfTags>();
+    if (!tags)
+        return make_err(GSF_ALLOCATION_FAILED);
     tags->title     = emu->get_tag("title").data();
     tags->artist    = emu->get_tag("artist").data();
     tags->game      = emu->get_tag("game").data();
@@ -533,7 +542,7 @@ GSF_API int gsf_get_tags(const GsfEmu *emu, GsfTags **out)
     tags->volume    = string::to_number<double>(emu->get_tag("volume")).value_or(0.0);
     tags->fade      = parse_duration(emu->get_tag("fade")).value_or(0);
     *out = tags;
-    return 0;
+    return GSF_NO_ERROR;
 }
 
 GSF_API void gsf_free_tags(GsfTags *tags)
