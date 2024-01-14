@@ -31,45 +31,6 @@
 
 
 
-/* allocation */
-
-namespace detail {
-
-void *malloc(size_t size, void *) {
-    return ::malloc(size);
-}
-void free(void *p, void *) { ::free(p); }
-
-} // namespace detail
-
-GsfAllocators allocators = { detail::malloc, detail::free, nullptr};
-
-int default_read_file(void *, const char *filename,
-    unsigned char **buf, long *size)
-{
-    FILE *file = fopen(filename, "rb");
-    if (!file)
-        return 1;
-    fseek(file, 0l, SEEK_END);
-    *size = ftell(file);
-    rewind(file);
-    *buf = gsf_allocate<unsigned char>(*size);
-    size_t bytes_read = fread(*buf, sizeof(char), *size, file);
-    if (bytes_read < (size_t)*size) {
-        allocators.free(*buf, allocators.userdata);
-        return 1;
-    }
-    fclose(file);
-    return 0;
-}
-
-void default_delete_file_data(unsigned char *buf)
-{
-    allocators.free(buf, allocators.userdata);
-}
-
-
-
 /* utilities */
 
 namespace fs = std::filesystem;
@@ -101,28 +62,6 @@ template <typename T>
 u32 read4(T ptr)
 {
     return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
-}
-
-template <typename T, typename Deleter = std::default_delete<T>>
-struct ManagedBuffer {
-    std::unique_ptr<T[], Deleter> ptr;
-    std::size_t size;
-    std::span<      T> to_span()       { return std::span<T>(ptr.get(), size); }
-    std::span<const T> to_span() const { return std::span<T>(ptr.get(), size); }
-};
-
-Result<ManagedBuffer<u8, GsfDeleteFileDataFn>> read_file(fs::path filepath,
-    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
-{
-    u8 *buf;
-    long size;
-    auto err = read_fn(userdata, filepath.string().c_str(), &buf, &size);
-    if (err != 0)
-        return tl::unexpected(GsfError { .code = err, .from = 0 });
-    return ManagedBuffer {
-        .ptr = std::unique_ptr<u8[], GsfDeleteFileDataFn>{buf, delete_fn},
-        .size = std::size_t(size),
-    };
 }
 
 std::optional<int> parse_duration(std::string_view s)
@@ -175,6 +114,63 @@ GsfError make_err(GsfErrorCode code) { return { .code = code, .from = 1 }; }
 
 
 
+/* reading files */
+
+template <typename T, typename Deleter = std::default_delete<T>>
+struct ManagedBuffer {
+    std::unique_ptr<T[], Deleter> ptr;
+    std::size_t size;
+    std::span<      T> to_span()       { return std::span<T>(ptr.get(), size); }
+    std::span<const T> to_span() const { return std::span<T>(ptr.get(), size); }
+};
+
+struct Deleter {
+    GsfReader reader;
+    const GsfAllocators allocators;
+    long size;
+    void operator()(unsigned char *buf) { reader.delete_data(buf, size, reader.userdata, &allocators); }
+};
+
+GsfReadResult default_read_file(const char *filename, void *, const GsfAllocators *allocators)
+{
+    FILE *file = fopen(filename, "rb");
+    if (!file)
+        return { .buf = nullptr, .size = 0, .err = { .code = 1, .from = 0 } };
+    fseek(file, 0l, SEEK_END);
+    auto size = ftell(file);
+    rewind(file);
+    unsigned char *buf = allocate<unsigned char>(*allocators, size);
+    if (!buf)
+        return { .buf = nullptr, .size = 0, .err = make_err(GSF_ALLOCATION_FAILED) };
+    size_t bytes_read = fread(buf, sizeof(char), size, file);
+    if (bytes_read < (size_t)size) {
+        allocators->free(buf, size, allocators->userdata);
+        return { .buf = nullptr, .size = 0, .err = { .code = 1, .from = 0 } };
+    }
+    fclose(file);
+    return { .buf = buf, .size = size, .err = { .code = 0, .from = 0 } };
+}
+
+void default_delete_data(unsigned char *buf, long size, void *, const GsfAllocators *allocators)
+{
+    allocators->free(buf, size, allocators->userdata);
+}
+
+Result<ManagedBuffer<u8, Deleter>> read_file(fs::path filepath,
+    const GsfReader &reader, const GsfAllocators &allocators)
+{
+    auto res = reader.read(filepath.string().c_str(), reader.userdata, &allocators);
+    if (res.err.code != 0)
+        return tl::unexpected(res.err);
+    auto deleter = Deleter { .reader = reader, .allocators = allocators, .size = res.size };
+    return ManagedBuffer {
+        .ptr = std::unique_ptr<u8[], Deleter>{res.buf, deleter},
+        .size = std::size_t(res.size),
+    };
+}
+
+
+
 /* gsf parsing */
 
 constexpr int MAX_LIBS = 11;
@@ -183,12 +179,26 @@ struct Rom {
     u32 entry_point;
     u32 offset;
     Vector<u8> data;
+
+    explicit Rom(const GsfAllocators &allocators)
+        : entry_point{0}, offset{0}, data(GsfAllocator<u8>(allocators))
+    { }
+    Rom(u32 entry_point, u32 offset, Vector<u8> data)
+        : entry_point{entry_point}, offset{offset}, data{std::move(data)}
+    { }
 };
 
 struct GSFFile {
     // std::span<u8> reserved;
     Rom rom;
     TagMap tags;
+
+    GSFFile(const GsfAllocators &allocators)
+        : rom{allocators}, tags(GsfAllocator<std::pair<const String, String>>(allocators))
+    { }
+    GSFFile(Rom &&rom, TagMap &&tags)
+        : rom{std::move(rom)}, tags{std::move(tags)}
+    { }
 
     void impose(const GSFFile &f)
     {
@@ -197,7 +207,7 @@ struct GSFFile {
     }
 };
 
-Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
+Result<Rom> uncompress_rom(std::span<u8> data, u32 crc, const GsfAllocators &allocators)
 {
     if (crc != crc32(crc32(0l, nullptr, 0), data.data(), data.size()))
         return tl::unexpected(make_err(GSF_INVALID_CRC));
@@ -209,31 +219,32 @@ Result<Rom> uncompress_rom(std::span<u8> data, u32 crc)
         return tl::unexpected(make_err(GSF_UNCOMPRESS_ERROR));
     // re-uncompress, now with the real size;
     size = read4(&tmp[8]) + 12;
-    auto uncompressed = Vector<u8>(size, 0);
+    auto uncompressed = Vector<u8>(size, 0, GsfAllocator<u8>(allocators));
     if (uncompress(uncompressed.data(), &size, data.data(), data.size()) != Z_OK)
         return tl::unexpected(make_err(GSF_UNCOMPRESS_ERROR));
     uncompressed.erase(uncompressed.begin(), uncompressed.begin() + 12);
     return Rom {
-        .entry_point = read4(&tmp[0]),
-        .offset      = read4(&tmp[4]),
-        .data        = std::move(uncompressed)
+        read4(&tmp[0]),
+        read4(&tmp[4]),
+        std::move(uncompressed)
     };
 }
 
-TagMap parse_tags(std::string_view tags)
+TagMap parse_tags(std::string_view tags, const GsfAllocators &allocators)
 {
-    TagMap result;
+    auto allocator = GsfAllocator<char>(allocators);
+    auto result = TagMap(GsfAllocator<std::pair<const String, String>>(allocators));
     string::split(tags, '\n', [&] (std::string_view tag) {
         auto equals = tag.find('=');
         auto first = string::trim_view(tag.substr(0, equals));
         auto second = string::trim_view(tag.substr(equals + 1, tag.size()));
         // currently lacking multiline variables
-        result[String(first)] = String(second);
+        result[String(first, allocator)] = String(second, allocator);
     });
     return result;
 }
 
-Result<GSFFile> parse(std::span<u8> data)
+Result<GSFFile> parse(std::span<u8> data, const GsfAllocators &allocators)
 {
     if (data.size() < 0x10 || data.size() > 0x4000000)
         return tl::unexpected(make_err(GSF_INVALID_FILE_SIZE));
@@ -248,7 +259,7 @@ Result<GSFFile> parse(std::span<u8> data)
         return tl::unexpected(make_err(GSF_INVALID_SECTION_LENGTH));
     // auto reserved = readb(reserved_length);
     readb(reserved_length);
-    auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc) : Rom{};
+    auto rom = program_length > 0 ? uncompress_rom(readb(program_length), crc, allocators) : Rom{allocators};
     if (!rom)
         return tl::unexpected(rom.error());
     auto tags = cursor < data.size() - 5 && std::memcmp(readb(5).data(), "[TAG]", 5) == 0
@@ -256,8 +267,8 @@ Result<GSFFile> parse(std::span<u8> data)
               : std::span<u8>{};
     return GSFFile {
         // .reserved = reserved,
-        .rom = std::move(rom.value()),
-        .tags = parse_tags(std::string_view((char *) tags.data(), tags.size())),
+        std::move(rom.value()),
+        parse_tags(std::string_view((char *) tags.data(), tags.size()), allocators),
     };
 }
 
@@ -270,17 +281,16 @@ std::optional<String> find_lib(std::span<GSFFile> files, int n)
     return std::nullopt;
 }
 
-Result<GSFFile> load_file(fs::path filepath,
-    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
+Result<GSFFile> load_file(fs::path filepath, const GsfReader &reader, const GsfAllocators &allocators)
 {
-    auto parsebuf = [](ManagedBuffer<u8, GsfDeleteFileDataFn> buf) { return parse(buf.to_span()); };
-    std::array<GSFFile, MAX_LIBS> files;
-    if (auto r = read_file(filepath, userdata, read_fn, delete_fn)
+    auto parsebuf = [&](ManagedBuffer<u8, Deleter> buf) { return parse(buf.to_span(), allocators); };
+    auto files = Vector<GSFFile>(MAX_LIBS, GSFFile{allocators}, GsfAllocator<GSFFile>(allocators));
+    if (auto r = read_file(filepath, reader, allocators)
                 .and_then(parsebuf)
                 .map([&] (GSFFile &&f) { files[0] = std::move(f); }); !r)
         return tl::unexpected(r.error());
     if (auto tag = files[0].tags.find("_lib"); tag != files[0].tags.end()) {
-        if (auto r = read_file(filepath.parent_path() / tag->second, userdata, read_fn, delete_fn)
+        if (auto r = read_file(filepath.parent_path() / tag->second, reader, allocators)
                     .and_then(parsebuf)
                     .map([&] (GSFFile &&f) {
                         files[1] = std::move(f);
@@ -290,7 +300,7 @@ Result<GSFFile> load_file(fs::path filepath,
             return tl::unexpected(r.error());
         for (auto i = 2; i < MAX_LIBS; i++) {
             if (auto libname = find_lib(std::span{files.begin(), files.begin() + i}, i); libname) {
-                if (auto r = read_file(filepath.parent_path() / libname.value(), userdata, read_fn, delete_fn)
+                if (auto r = read_file(filepath.parent_path() / libname.value(), reader, allocators)
                             .and_then(parsebuf)
                             .map([&] (GSFFile &&f) {
                                 files[i] = std::move(f);
@@ -314,10 +324,7 @@ constexpr auto BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
 
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right);
 
-class AVStream : public mAVStream {
-    GSF_IMPLEMENT_ALLOCATORS
-
-public:
+struct AVStream : public mAVStream {
     short samples[BUF_SIZE];
     long read = 0;
 
@@ -345,13 +352,13 @@ void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
 }
 
 class GsfEmu {
-    GSF_IMPLEMENT_ALLOCATORS
+    // GSF_IMPLEMENT_ALLOCATORS
 
     mCore *core;
-    AVStream av;
     int samplerate;
     int flags;
     TagMap tags;
+    AVStream av;
     long num_samples = 0;
     long max_samples = 0;
     int default_len  = 0;
@@ -359,10 +366,12 @@ class GsfEmu {
     bool infinite    = false;
 
 public:
-    explicit GsfEmu(mCore *core, int sample_rate, int flags)
-        : core{core}, samplerate{sample_rate}, flags{flags} { }
+    explicit GsfEmu(mCore *core, int sample_rate, int flags, const GsfAllocators &allocators)
+        : core{core}, samplerate{sample_rate}, flags{flags},
+          tags(GsfAllocator<std::pair<const String, String>>(allocators))
+    { }
 
-    static Result<GsfEmu *> create(int sample_rate, int flags)
+    static Result<GsfEmu *> create(int sample_rate, int flags, const GsfAllocators &allocators)
     {
         auto core = GBACoreCreate();
         if (!core->init(core))
@@ -377,7 +386,7 @@ public:
         opts.useBios = false;
         opts.sampleRate = static_cast<unsigned>(sample_rate);
         mCoreConfigLoadDefaults(&core->config, &opts);
-        auto *emu = new GsfEmu(core, sample_rate, flags);
+        auto *emu = allocate<GsfEmu>(allocators, 1, core, sample_rate, flags, allocators);
         if (!emu) {
             core->deinit(core);
             return tl::unexpected(make_err(GSF_ALLOCATION_FAILED));
@@ -482,7 +491,13 @@ GSF_API bool gsf_is_compatible_version(void)
 
 GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags)
 {
-    auto emu = GsfEmu::create(sample_rate, flags);
+    auto alloc = GsfAllocators { detail::malloc, detail::free, nullptr };
+    return gsf_new_with_allocators(out, sample_rate, flags, &alloc);
+}
+
+GSF_API GsfError gsf_new_with_allocators(GsfEmu **out, int sample_rate, int flags, GsfAllocators *allocators)
+{
+    auto emu = GsfEmu::create(sample_rate, flags, *allocators);
     if (!emu)
         return emu.error();
     *out = emu.value();
@@ -492,23 +507,43 @@ GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags)
 
 GSF_API void gsf_delete(GsfEmu *emu)
 {
-    delete emu;
+    auto alloc = GsfAllocators { detail::malloc, detail::free, nullptr };
+    gsf_delete_with_allocators(emu, &alloc);
 }
 
-GSF_API GsfError gsf_load_file_custom(GsfEmu *emu, const char *filename,
-    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn)
+GSF_API void gsf_delete_with_allocators(GsfEmu *emu, GsfAllocators *allocators)
 {
-    auto f = load_file(fs::path{filename}, userdata, read_fn, delete_fn);
-    if (!f)
-        return f.error();
-    emu->load(f.value().rom.data, std::move(f.value().tags));
-    return GSF_NO_ERROR;
+    allocators->free(emu, sizeof(GsfEmu), allocators->userdata);
 }
 
 GSF_API GsfError gsf_load_file(GsfEmu *emu, const char *filename)
 {
-    return gsf_load_file_custom(emu, filename, nullptr, default_read_file,
-        default_delete_file_data);
+    auto reader = GsfReader { default_read_file, default_delete_data, nullptr };
+    return gsf_load_file_with_reader(emu, filename, &reader);
+}
+
+GSF_API GsfError gsf_load_file_with_reader(GsfEmu *emu, const char *filename,
+    GsfReader *reader)
+{
+    auto alloc = GsfAllocators { detail::malloc, detail::free, nullptr };
+    return gsf_load_file_with_reader_allocators(emu, filename, reader, &alloc);
+}
+
+GSF_API GsfError gsf_load_file_with_allocators(GsfEmu *emu,
+    const char *filename, GsfAllocators *allocators)
+{
+    auto reader = GsfReader { default_read_file, default_delete_data, nullptr };
+    return gsf_load_file_with_reader_allocators(emu, filename, &reader, allocators);
+}
+
+GSF_API GsfError gsf_load_file_with_reader_allocators(GsfEmu *emu,
+    const char *filename, GsfReader *reader, GsfAllocators *allocators)
+{
+    auto f = load_file(fs::path{filename}, *reader, *allocators);
+    if (!f)
+        return f.error();
+    emu->load(f.value().rom.data, std::move(f.value().tags));
+    return GSF_NO_ERROR;
 }
 
 GSF_API bool gsf_loaded(const GsfEmu *emu)
@@ -528,7 +563,20 @@ GSF_API bool gsf_ended(const GsfEmu *emu)
 
 GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out)
 {
-    GsfTags *tags   = gsf_allocate<GsfTags>();
+    auto alloc = GsfAllocators { detail::malloc, detail::free, nullptr };
+    return gsf_get_tags_with_allocators(emu, out, &alloc);
+}
+
+GSF_API void gsf_free_tags(GsfTags *tags)
+{
+    auto alloc = GsfAllocators { detail::malloc, detail::free, nullptr };
+    return gsf_free_tags_with_allocators(tags, &alloc);
+}
+
+GSF_API GsfError gsf_get_tags_with_allocators(const GsfEmu *emu, GsfTags **out,
+    GsfAllocators *allocators)
+{
+    auto *tags      = allocate<GsfTags>(*allocators, 1);
     if (!tags)
         return make_err(GSF_ALLOCATION_FAILED);
     tags->title     = emu->get_tag("title").data();
@@ -545,9 +593,9 @@ GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out)
     return GSF_NO_ERROR;
 }
 
-GSF_API void gsf_free_tags(GsfTags *tags)
+GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocators)
 {
-    allocators.free(tags, allocators.userdata);
+    allocators->free(tags, sizeof(GsfTags), allocators->userdata);
 }
 
 GSF_API long gsf_length(GsfEmu *emu)
@@ -588,9 +636,4 @@ GSF_API long gsf_default_length(const GsfEmu *emu)
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)
 {
     emu->set_infinite(infinite);
-}
-
-GSF_API void gsf_set_allocators(GsfAllocators *allocators)
-{
-    ::allocators = *allocators;
 }

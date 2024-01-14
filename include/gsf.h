@@ -40,8 +40,8 @@ extern "C" {
 typedef struct GsfEmu GsfEmu;
 
 /* read/delete functions for gsf_load_file_custom, see below. */
-typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
-typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
+// typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
+// typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
 
 /* Flags passed to gsf_new, see below. */
 typedef enum GsfFlags {
@@ -69,8 +69,8 @@ typedef struct GsfTags {
 
 /* Custom allocator support, see below. */
 typedef struct GsfAllocators {
-    void *(*malloc)(size_t, void *userdata);
-    void  (*free)(void *, void *userdata);
+    void *(*malloc)(size_t size, void *userdata);
+    void  (*free)(void *ptr, size_t size, void *userdata);
     void *userdata;
 } GsfAllocators;
 
@@ -105,6 +105,26 @@ static const GsfError GSF_NO_ERROR = {
     .from = 0,
 };
 
+/* Result of reading a file, see below. */
+typedef struct GsfReadResult {
+    unsigned char *buf;
+    long size;
+    GsfError err;
+} GsfReadResult;
+
+/*
+ * This struct is used on load_file to customize how reading should be done.
+ * The `read` function reads a file with the given `filename` and returns a
+ * buffer (pointer+size) and an error that tells us if reading was successful.
+ * The error should usually be get from the OS.
+ * The `delete_data` function delete the file data allocated by `read`.
+ */
+typedef struct GsfReader {
+    GsfReadResult (*read)(const char *filename, void *userdata, const GsfAllocators *allocators);
+    void (*delete_data)(unsigned char *buf, long size, void *userdata, const GsfAllocators *allocators);
+    void *userdata;
+} GsfReader;
+
 /*
  * These two functions get and check the library version, respectively.
  * They can be used to test if you've got any installation errors.
@@ -126,19 +146,29 @@ GSF_API GsfError gsf_new(GsfEmu **out, int frequency, int flags);
 GSF_API void gsf_delete(GsfEmu *emu);
 
 /*
+ * Same as above, but takes a parameter `allocators` that the functions will use
+ * to allocate memory.
+ */
+GSF_API GsfError gsf_new_with_allocators(GsfEmu **out, int sample_rate, int flags,
+    GsfAllocators *allocators);
+GSF_API void gsf_delete_with_allocators(GsfEmu *emu, GsfAllocators *allocators);
+
+/*
  * Loads a file and any corresponding library files inside an emulator.
  * `filename` is assumed to be a valid file path.
  */
 GSF_API GsfError gsf_load_file(GsfEmu *emu, const char *filename);
 
 /*
- * Same as above, but with custom functions for reading and deleting file data.
- * read_fn should read all of file's data and return it inside the parameters buf and size.
- * It can return any OS error codes it finds.
- * delete_fn should delete the memory allocated by read_fn.
+ * Same as above, but with additional parameters `reader` and `allocators`
+ * to specify how to read a file and how to allocate memory.
  */
-GSF_API GsfError gsf_load_file_custom(GsfEmu *emu, const char *filename,
-    void *userdata, GsfReadFn read_fn, GsfDeleteFileDataFn delete_fn);
+GSF_API GsfError gsf_load_file_with_reader(GsfEmu *emu, const char *filename,
+    GsfReader *reader);
+GSF_API GsfError gsf_load_file_with_allocators(GsfEmu *emu,
+    const char *filename, GsfAllocators *allocators);
+GSF_API GsfError gsf_load_file_with_reader_allocators(GsfEmu *emu,
+    const char *filename, GsfReader *reader, GsfAllocators *allocators);
 
 /* Checks if any files are loaded inside an emulator. */
 GSF_API bool gsf_loaded(const GsfEmu *emu);
@@ -157,6 +187,11 @@ GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out);
 
 /* Frees tags taken from `gsf_get_tags`. */
 GSF_API void gsf_free_tags(GsfTags *tags);
+
+/* Same pair of functions as the above two, but with allocator API. */
+GSF_API GsfError gsf_get_tags_with_allocators(const GsfEmu *emu, GsfTags **out,
+    GsfAllocators *allocators);
+GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocators);
 
 /*
  * Gets the length of the file, regardless of whether gsf_infinite

@@ -6,50 +6,69 @@
 
 extern GsfAllocators allocators;
 
-template <typename T>
-inline T *gsf_allocate(size_t size = 1)
+namespace detail {
+
+void *malloc(size_t size, void *) { return ::malloc(size); }
+void free(void *p, size_t, void *) { ::free(p); }
+
+} // namespace detail
+
+template <typename T, typename... Args>
+inline T *allocate(const GsfAllocators &allocators, size_t size, Args&&... args)
 {
-    return static_cast<T *>(allocators.malloc(size * sizeof(T), allocators.userdata));
+    auto *mem = allocators.malloc(size * sizeof(T), allocators.userdata);
+    if (!mem)
+        return nullptr;
+    auto *obj = new (mem) T(args...);
+    return obj;
 }
 
-#define GSF_IMPLEMENT_ALLOCATORS                                                                     \
-public:                                                                                               \
-    void *operator new  (size_t size)       { return allocators.malloc(size, allocators.userdata); }  \
-    void *operator new[](size_t size)       { return allocators.malloc(size, allocators.userdata); }  \
-    void *operator new  (size_t, void *ptr) { return ptr; }                                           \
-    void *operator new[](size_t, void *ptr) { return ptr; }                                           \
-    void  operator delete  (void *ptr)      { allocators.free(ptr, allocators.userdata); }            \
-    void  operator delete[](void *ptr)      { allocators.free(ptr, allocators.userdata); }            \
-    void  operator delete  (void *, void *) {}                                                        \
-    void  operator delete[](void *, void *) {}                                                        \
-private:
+template <typename T>
+struct GsfAllocator {
+    GsfAllocators allocators = { nullptr, nullptr, nullptr };
 
-template <class T> struct GsfAllocator {
-    typedef size_t size_type;
-    typedef ptrdiff_t difference_type;
-    typedef T *pointer;
-    typedef const T *const_pointer;
-    typedef T& reference;
-    typedef const T &const_reference;
-    typedef T value_type;
+    using value_type      = T;
+    using size_type       = size_t;
+    using difference_type = ptrdiff_t;
 
-    template <class U> struct rebind { typedef GsfAllocator<U> other; };
+    constexpr GsfAllocator() noexcept = default;
+    constexpr explicit GsfAllocator(const GsfAllocators &allocators) noexcept
+        : allocators{allocators}
+    { }
 
-    GsfAllocator() throw() {}
-    GsfAllocator(const GsfAllocator &) throw() {}
+    constexpr GsfAllocator(const GsfAllocator &a) noexcept
+    {
+        this->allocators.malloc   = a.allocators.malloc;
+        this->allocators.free     = a.allocators.free;
+        this->allocators.userdata = a.allocators.userdata;
+    }
 
     template <class U>
-    GsfAllocator(const GsfAllocator<U> &) throw() {}
+    constexpr GsfAllocator(const GsfAllocator<U> &a) noexcept
+    {
+        this->allocators.malloc   = a.allocators.malloc;
+        this->allocators.free     = a.allocators.free;
+        this->allocators.userdata = a.allocators.userdata;
+    }
 
-    ~GsfAllocator() throw() {}
+    constexpr ~GsfAllocator() {}
 
-    pointer address(reference x) const { return &x; }
-    const_pointer address(const_reference x) const { return &x; }
-    pointer allocate(size_type s, void const * = 0) { return s ? gsf_allocate<T>(s) : 0; }
-    void deallocate(pointer p, size_type) { allocators.free(p, allocators.userdata); }
-    size_type max_size() const throw() { return std::numeric_limits<size_t>::max() / sizeof(T); }
-    void construct(pointer p, const T& val) { new (reinterpret_cast<void *>(p)) T(val); }
-    void destroy(pointer p) { p->~T(); }
-    bool operator==(const GsfAllocator<T> &) const { return true; }
-    bool operator!=(const GsfAllocator<T> &) const { return false; }
+    T *allocate(size_type count)
+    {
+        return static_cast<T *>(allocators.malloc(count * sizeof(T), allocators.userdata));
+    }
+
+    void deallocate(T *p, size_type size)
+    {
+        allocators.free(p, size, allocators.userdata);
+    }
+
+    bool operator==(const GsfAllocator<T> &other) const
+    {
+        return allocators.malloc   == other.allocators.malloc
+            && allocators.free     == other.allocators.free
+            && allocators.userdata == other.allocators.userdata;
+    }
+
+    bool operator!=(const GsfAllocator<T> &other) const  { return !operator==(other); }
 };
