@@ -637,3 +637,13 @@ GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)
 {
     emu->set_infinite(infinite);
 }
+
+GSF_API int gsf_sample_rate(GsfEmu *emu)
+{
+    return emu->sample_rate();
+}
+
+GSF_API int gsf_num_channels(GsfEmu *emu)
+{
+    return emu->num_channels();
+}

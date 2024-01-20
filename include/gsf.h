@@ -140,7 +140,7 @@ GSF_API bool gsf_is_compatible_version(void);
  *   channels instead of a single one.
  * (NOTE: these flags are still unsupported!)
  */
-GSF_API GsfError gsf_new(GsfEmu **out, int frequency, int flags);
+GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags);
 
 /* Deletes an emulator object. */
 GSF_API void gsf_delete(GsfEmu *emu);
@@ -243,6 +243,10 @@ GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
  * two functions.
  */
 GSF_API void gsf_set_allocators(GsfAllocators *allocators);
+
+GSF_API int gsf_sample_rate(GsfEmu *emu);
+
+GSF_API int gsf_num_channels(GsfEmu *emu);
 
 #ifdef __cplusplus
 }
