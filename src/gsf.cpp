@@ -457,7 +457,7 @@ public:
 
     long tell()           const { return num_samples; }
     int sample_rate()     const { return samplerate; }
-    long length()         const { return samples_to_millis(max_samples, samplerate, num_channels()); }
+    long length_samples() const { return max_samples; }
     long default_length() const { return default_len; }
     bool ended()          const { return infinite ? false : num_samples >= max_samples; }
     bool loaded_file()    const { return loaded; }
@@ -600,7 +600,12 @@ GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocat
 
 GSF_API long gsf_length(GsfEmu *emu)
 {
-    return emu->length();
+    return samples_to_millis(emu->length_samples(), emu->sample_rate(), emu->num_channels());
+}
+
+GSF_API long gsf_length_samples(GsfEmu *emu)
+{
+    return emu->length_samples();
 }
 
 GSF_API long gsf_tell(const GsfEmu *emu)

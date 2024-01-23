@@ -196,8 +196,11 @@ GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocat
 /*
  * Gets the length of the file, regardless of whether gsf_infinite
  * has been set or not.
+ * First functions returns it in milliseconds, second one returns it in number
+ * of samples.
  */
 GSF_API long gsf_length(GsfEmu *emu);
+GSF_API long gsf_length_samples(GsfEmu *emu);
 
 /* Number of milliseconds played since the beginning of the file. */
 GSF_API long gsf_tell(const GsfEmu *emu);
