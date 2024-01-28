@@ -202,31 +202,28 @@ GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocat
 GSF_API long gsf_length(GsfEmu *emu);
 GSF_API long gsf_length_samples(GsfEmu *emu);
 
-/* Number of milliseconds played since the beginning of the file. */
+/*
+ * Returns the playback position of the file. The first function return the
+ * position in millisecond, the second in samples.
+ */
 GSF_API long gsf_tell(const GsfEmu *emu);
-
-/* Same as above, but in samples. */
 GSF_API long gsf_tell_samples(const GsfEmu *emu);
 
 /*
- * Sets the currently playing file to a specified position in milliseconds.
- * Can only seek forward.
+ * Sets the currently playing file to a specified position in milliseconds or
+ * in samples. Can only seek forward.
  */
 GSF_API void gsf_seek(GsfEmu *emu, long millis);
-
-/* Same as above, but in samples. */
 GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);
 
 /*
- * Sets the default length when parsing a file. Ideally should be set before
- * loading a file (it won't modify the current file's length.
- * The default length is only used if the file tags contain no length
- * information, otherwise it will use the tags.
+ * Gets and sets the default length when parsing a file.
+ * Ideally, this length should be set before loading a file (it won't modify
+ * the current file's length. The default length is only used if the file tags
+ * contain no length information, otherwise it will use the tags.
  */
-GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
-
-/* Returns the default length set. Defaults to 0. */
 GSF_API long gsf_default_length(const GsfEmu *emu);
+GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
 
 /*
  * Sets whether playing should be infinite for the currently playing file.
@@ -247,8 +244,13 @@ GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
  */
 GSF_API void gsf_set_allocators(GsfAllocators *allocators);
 
+/* Returns the sample rate set at creation. */
 GSF_API int gsf_sample_rate(GsfEmu *emu);
 
+/*
+ * Returns the number of channels. Usually 2 (for stereo),
+ * unless GSF_MULTI was used.
+ */
 GSF_API int gsf_num_channels(GsfEmu *emu);
 
 #ifdef __cplusplus
