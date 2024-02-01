@@ -11,7 +11,7 @@ add_subdirectory(mgba/src/arm EXCLUDE_FROM_ALL)
 add_subdirectory(mgba/src/core EXCLUDE_FROM_ALL)
 add_subdirectory(mgba/src/gba EXCLUDE_FROM_ALL)
 add_subdirectory(mgba/src/util EXCLUDE_FROM_ALL)
-add_subdirectory(mgba/src/feature EXCLUDE_FROM_ALL)
+# add_subdirectory(mgba/src/feature EXCLUDE_FROM_ALL)
 
 set(CORE_VFS_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/mgba/src/util/vfs/vfs-mem.c
@@ -32,7 +32,7 @@ if (WIN32)
     target_link_libraries(libgsf ws2_32 shlwapi)
 elseif(UNIX)
     file(GLOB OS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/mgba/src/platform/posix/*.c)
-	list(APPEND CORE_VFS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/util/vfs/vfs-dirent.c)
+	list(APPEND CORE_VFS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/mgba/src/util/vfs/vfs-dirent.c)
 endif()
 
 file(GLOB THIRD_PARTY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/mgba/src/third-party/inih/*.c)
@@ -54,20 +54,21 @@ target_sources(libgsf
 
 target_compile_definitions(libgsf PRIVATE MINIMAL_CORE MGBA_DLL DISABLE_THREADING)
 
-check_function_exists(newlocale, HAVE_NEWLOCALE)
-check_function_exists(freelocale, HAVE_FREELOCALE)
+check_function_exists(newlocale HAVE_NEWLOCALE)
+check_function_exists(freelocale HAVE_FREELOCALE)
 check_include_files("xlocale.h" HAVE_XLOCALE)
-check_function_exists(strdup, HAVE_STRDUP)
 
-if(HAVE_NEWLOCALE AND HAVE_FREELOCALE OR APPLE)
+if (HAVE_NEWLOCALE AND HAVE_FREELOCALE OR APPLE)
     target_compile_definitions(libgsf PRIVATE HAVE_LOCALE)
 endif()
 if (HAVE_XLOCALE)
     target_compile_definitions(libgsf PRIVATE HAVE_XLOCALE)
 endif()
-#if (HAVE_STRDUP)
-target_compile_definitions(libgsf PRIVATE HAVE_STRDUP)
-#endif()
+
+check_function_exists(strdup HAVE_STRDUP)
+if (HAVE_STRDUP)
+    target_compile_definitions(libgsf PRIVATE HAVE_STRDUP)
+endif()
 
 target_include_directories(libgsf
     PRIVATE
