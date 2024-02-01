@@ -39,6 +39,8 @@ inline bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
 inline bool is_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 inline bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
+template <typename T> T to_lower(T c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+
 template <typename From = std::string>
 inline void split(const From &s, char delim, auto &&fn)
 {
@@ -135,13 +137,21 @@ inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
 
 template <typename TStr = std::string, typename T = int>
 inline TStr from_number(const T &n, int base = 10)
-    requires std::is_integral_v<T>
 {
     constexpr auto maxbuf = std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value;
     std::array<char, maxbuf> buf;
     auto res = std::to_chars(buf.data(), buf.data() + buf.size(), n, base);
-    auto str = TStr(buf.begin(), res.ptr);
+    auto str = TStr(buf.data(), res.ptr);
     return str;
+}
+
+template <typename T>
+bool iequals(const T& a, const T& b)
+{
+    return a.size() == b.size()
+        && std::equal(a.begin(), a.end(), b.begin(), [&](auto ac, auto bc) {
+            return to_lower(ac) == to_lower(bc);
+        });
 }
 
 } // namespace string

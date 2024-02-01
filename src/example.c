@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <unistd.h>
 
 int main(int argc, char *argv[])
 {
@@ -51,7 +50,6 @@ int main(int argc, char *argv[])
         gsf_play(emu, samples, 16);
         printf("\r%d samples, %d millis %d seconds", gsf_tell_samples(emu), gsf_tell(emu), gsf_tell(emu) / 1000);
         fflush(stdout);
-        usleep(1000);
     }
 
     gsf_delete(emu);

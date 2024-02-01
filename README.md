@@ -22,6 +22,16 @@ Compiling is done through CMake. Use the following commands to build:
 This will build both the library and the two examples provided. You will find
 them inside the `build/` directory.
 
+## Windows
+
+On Windows, life is more complicated. The recommended way is using conan (only
+used to install zlib). Issue the following commands:
+
+    conan install . --output-folder=build --build=missing
+    cd build
+    cmake .. -DBUILD_EXAMPLES=ON -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake
+    cmake --build . --config Release
+
 # Installing
 
 While still inside the `build/` directory:

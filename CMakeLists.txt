@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.15)
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Do not build in-source. Please remove CMakeCache.txt and the CMakeFiles/ directory. Then build out-of-source.")
@@ -11,7 +11,6 @@ option(BUILD_WITH_ASAN "Build using ASAN" OFF)
 
 include(GNUInstallDirs)
 include(InstallRequiredSystemLibraries)
-include(CMakePackageConfigHelpers)
 include(CMakePackageConfigHelpers)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
@@ -30,6 +29,7 @@ set_target_properties(${PROJECT_NAME}
         OUTPUT_NAME gsf
 )
 
+find_package(ZLIB REQUIRED)
 add_subdirectory(external)
 
 add_library(libgsf::libgsf ALIAS libgsf)
@@ -42,14 +42,14 @@ target_include_directories(${PROJECT_NAME}
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20 c_std_11)
+target_compile_definitions(${PROJECT_NAME} PRIVATE GSF_BUILD_SHARED)
 
-target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
 if (BUILD_WITH_ASAN)
     target_compile_options(${PROJECT_NAME} PRIVATE -fsanitize=address)
 endif()
 
-target_link_libraries(${PROJECT_NAME} z)
+target_link_libraries(${PROJECT_NAME} ZLIB::ZLIB)
 
 set(
     ${PROJECT_NAME}_INSTALL_CMAKEDIR
@@ -98,7 +98,6 @@ if (BUILD_EXAMPLES)
         target_link_libraries(example libgsf)
     endif()
 
-
     find_package(SDL2)
     if (SDL2_FOUND)
         message("SDL2 example will be built")
@@ -106,9 +105,9 @@ if (BUILD_EXAMPLES)
         target_include_directories(example_sdl PRIVATE ${SDL2_INCLUDE_DIRS})
         target_link_directories(example_sdl PRIVATE ${SDL2_LIBRARY_DIRS})
         if (BUILD_WITH_ASAN)
-            target_link_libraries(example_sdl asan ${SDL2_LIBRARIES} libgsf)
+            target_link_libraries(example_sdl asan ${SDL2_LIBRARIES} SDL2::SDL2main libgsf)
         else()
-            target_link_libraries(example_sdl ${SDL2_LIBRARIES} libgsf)
+            target_link_libraries(example_sdl ${SDL2_LIBRARIES} SDL2::SDL2main libgsf)
         endif()
     else()
         message("SDL2 not found, cannot build SDL2 example")

@@ -18,7 +18,6 @@
 #include <filesystem>
 #include <optional>
 #include <bit>
-#include <strings.h>
 #include <zlib.h>
 #include <tl/expected.hpp>
 #include <mgba/gba/core.h>
@@ -44,8 +43,7 @@ template <typename T> using Result = tl::expected<T, GsfError>;
 struct InsensitiveCompare {
     bool operator()(const String &lhs, const String &rhs) const
     {
-        return lhs.size() == rhs.size()
-            && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+        return string::iequals(lhs, rhs);
     }
 };
 
@@ -325,7 +323,7 @@ constexpr auto BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
 void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right);
 
 struct AVStream : public mAVStream {
-    short samples[BUF_SIZE];
+    short samples[BUF_SIZE] = {};
     long read = 0;
 
     AVStream() : mAVStream()
@@ -352,8 +350,6 @@ void post_audio_buffer(mAVStream *stream, blip_t *left, blip_t *right)
 }
 
 class GsfEmu {
-    // GSF_IMPLEMENT_ALLOCATORS
-
     mCore *core;
     int samplerate;
     int flags;
@@ -420,7 +416,7 @@ public:
             while (av.read == 0)
                 core->runLoop(core);
             auto to_take = std::min(size - took, av.read);
-            av.take(std::span{out + took, static_cast<size_t>(to_take)});
+            av.take(std::span<short>{ out + took, static_cast<size_t>(to_take) });
             took += to_take;
             num_samples += to_take;
         }

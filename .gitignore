@@ -6,3 +6,7 @@ libresample-0.1.3/config.status
 build
 external/libresample
 .cache
+.vs
+CMakeSettings.json
+CMakeUserPresets.json
+*.swp

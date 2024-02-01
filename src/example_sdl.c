@@ -7,6 +7,74 @@
 #include <SDL.h>
 #include <SDL_audio.h>
 
+#ifdef _WIN32
+
+#include <windows.h>
+
+// https://docs.microsoft.com/en-us/windows/console/setconsolemode
+// These values are effective on Windows 10 build 16257 (August 2017) or later
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+#ifndef DISABLE_NEWLINE_AUTO_RETURN
+#define DISABLE_NEWLINE_AUTO_RETURN 0x0008
+#endif
+
+HANDLE stdin_handle, stdout_handle;
+DWORD in_mode, out_mode;
+
+void term_init()
+{
+    stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (stdin_handle == INVALID_HANDLE_VALUE || stdout_handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Failed to get console handles\n");
+        return;
+    }
+    if (!GetConsoleMode(stdin_handle, &in_mode)) {
+        fprintf(stderr, "Failed to get input mode\n");
+        return;
+    }
+    if (!GetConsoleMode(stdout_handle, &out_mode)) {
+        fprintf(stderr, "Failed to get output mode\n");
+        return;
+    }
+    if (!SetConsoleMode(stdin_handle, ENABLE_WINDOW_INPUT)) {
+        fprintf(stderr, "Failed to set new input mode\n");
+    }
+    if (!SetConsoleMode(stdout_handle, out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)) {
+        if (!SetConsoleMode(stdout_handle, out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
+            fprintf(stderr, "Failed to enable virtual terminal mode\n");
+        }
+    }
+}
+
+void term_end()
+{
+    if (stdin_handle != INVALID_HANDLE_VALUE) { SetConsoleMode(stdin_handle, in_mode); }
+    if (stdout_handle != INVALID_HANDLE_VALUE) { SetConsoleMode(stdout_handle, out_mode); }
+}
+
+bool get_input(char* c)
+{
+    *c = '\0';
+    DWORD n = 0;
+    if (!GetNumberOfConsoleInputEvents(stdin_handle, &n) || n == 0)
+        return false;
+    INPUT_RECORD inputbuf;
+    if (!ReadConsoleInput(stdin_handle, &inputbuf, 1, &n))
+        return false;
+    if (n == 0 || inputbuf.EventType != KEY_EVENT)
+        return false;
+    KEY_EVENT_RECORD* key = &inputbuf.Event.KeyEvent;
+    if (key->bKeyDown)
+        return false;
+    *c = key->uChar.AsciiChar;
+    return true; //key->uChar.AsciiChar);
+}
+
+#elif defined(linux) || defined(__linux__)
+
 #include <unistd.h>
 #include <termios.h>
 #include <fcntl.h>
@@ -36,12 +104,14 @@ bool get_input(char *c)
     return read(STDIN_FILENO, c, 1) == 1;
 }
 
+#endif
+
 // note that using SDL's audio libraries with a small buffer size
 // can result in garbage being played alongside the music.
 // if you wanna test it, simply set the value below to 16
-const int NUM_SAMPLES = 1024;
-const int NUM_CHANNELS = 2;
-const int BUF_SIZE = NUM_CHANNELS * NUM_SAMPLES;
+#define NUM_SAMPLES 1024
+#define NUM_CHANNELS 2
+#define BUF_SIZE 2048
 
 void sdl_callback(void *userdata, unsigned char *stream, int length)
 {
