@@ -427,6 +427,13 @@ public:
 
     void skip(long n)
     {
+        if (n < 0) {
+            core->reset(core);
+            n = num_samples + n;
+            num_samples = 0;
+            av.read = 0;
+        }
+
         for (auto took = 0; took < n && !ended(); ) {
             while (av.read == 0)
                 core->runLoop(core);

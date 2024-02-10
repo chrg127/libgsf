@@ -214,7 +214,7 @@ GSF_API long gsf_tell_samples(const GsfEmu *emu);
 
 /*
  * Sets the currently playing file to a specified position in milliseconds or
- * in samples. Can only seek forward.
+ * in samples. Note that seeking backwards can be slow.
  */
 GSF_API void gsf_seek(GsfEmu *emu, long millis);
 GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);

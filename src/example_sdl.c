@@ -198,6 +198,11 @@ int main(int argc, char *argv[])
                 gsf_seek(emu, 1000);
                 SDL_UnlockAudioDevice(dev);
                 break;
+            case 'h':
+                SDL_LockAudioDevice(dev);
+                gsf_seek(emu, -1000);
+                SDL_UnlockAudioDevice(dev);
+                break;
             }
         }
     }
