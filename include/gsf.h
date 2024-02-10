@@ -198,6 +198,9 @@ GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocat
  * has been set or not.
  * First functions returns it in milliseconds, second one returns it in number
  * of samples.
+ * A length of -1 may returned, which means that a length tag is present, but
+ * is in a bad format. Refer to psf.txt for details on a correctly formatted
+ * length.
  */
 GSF_API long gsf_length(GsfEmu *emu);
 GSF_API long gsf_length_samples(GsfEmu *emu);

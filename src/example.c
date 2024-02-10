@@ -36,13 +36,13 @@ int main(int argc, char *argv[])
         "copyright: %s\n"
         "gsfby: %s\n"
         "volume: %f\n"
-        "length: %d\n"
         "fade: %d\n",
         tags->title, tags->artist, tags->game,
         tags->year, tags->genre, tags->comment,
         tags->copyright, tags->gsfby,
         tags->volume, tags->fade
     );
+    printf("length: %d ms\n", gsf_length(emu));
     gsf_free_tags(tags);
 
     while (!gsf_ended(emu)) {
