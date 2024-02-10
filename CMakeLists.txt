@@ -27,6 +27,7 @@ add_library(libgsf
 set_target_properties(${PROJECT_NAME}
     PROPERTIES
         OUTPUT_NAME gsf
+        PUBLIC_HEADER ${CMAKE_CURRENT_LIST_DIR}/include/gsf.h
 )
 
 find_package(ZLIB REQUIRED)
@@ -58,8 +59,8 @@ set(
 )
 
 install(
-    TARGETS ${PROJECT_NAME}
-    EXPORT ${PROJECT_NAME}_targets
+    TARGETS libgsf
+    EXPORT libgsf_targets
     INCLUDES
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
