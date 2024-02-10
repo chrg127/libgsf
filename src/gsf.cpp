@@ -371,6 +371,13 @@ public:
 
     static Result<GsfEmu *> create(int sample_rate, int flags, const GsfAllocators &allocators)
     {
+        if (flags & GSF_INFO_ONLY) {
+            auto *emu = allocate<GsfEmu>(allocators, 1, nullptr, sample_rate, flags, allocators);
+            if (!emu)
+                return tl::unexpected(make_err(GSF_ALLOCATION_FAILED));
+            return emu;
+        }
+
         auto core = GBACoreCreate();
         if (!core->init(core))
             return tl::unexpected(make_err(GSF_ALLOCATION_FAILED));
@@ -401,9 +408,11 @@ public:
 
     int load(std::span<u8> data, TagMap &&tags)
     {
-        auto *vmem = VFileMemChunk(data.data(), data.size());
-        core->loadROM(core, vmem);
-        core->reset(core);
+        if (!(flags & GSF_INFO_ONLY)) {
+            auto *vmem = VFileMemChunk(data.data(), data.size());
+            core->loadROM(core, vmem);
+            core->reset(core);
+        }
         this->tags = std::move(tags);
         auto length_tag = get_tag("length").value_or("");
         auto length = length_tag == "" ? default_len : parse_duration(length_tag).value_or(-1);
@@ -414,6 +423,8 @@ public:
 
     void play(short *out, long size)
     {
+        if (flags & GSF_INFO_ONLY)
+            return;
         memset(out, 0, size * sizeof(short));
         for (auto took = 0; took < size && !ended(); ) {
             while (av.read == 0)
@@ -427,13 +438,14 @@ public:
 
     void skip(long n)
     {
+        if (flags & GSF_INFO_ONLY)
+            return;
         if (n < 0) {
             core->reset(core);
             n = num_samples + n;
             num_samples = 0;
             av.read = 0;
         }
-
         for (auto took = 0; took < n && !ended(); ) {
             while (av.read == 0)
                 core->runLoop(core);

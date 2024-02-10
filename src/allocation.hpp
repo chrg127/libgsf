@@ -14,9 +14,9 @@ void free(void *p, size_t, void *) { ::free(p); }
 } // namespace detail
 
 template <typename T, typename... Args>
-inline T *allocate(const GsfAllocators &allocators, size_t size, Args&&... args)
+inline T *allocate(const GsfAllocators &allocators, size_t nmemb, Args&&... args)
 {
-    auto *mem = allocators.malloc(size * sizeof(T), allocators.userdata);
+    auto *mem = allocators.malloc(nmemb * sizeof(T), allocators.userdata);
     if (!mem)
         return nullptr;
     auto *obj = new (mem) T(args...);

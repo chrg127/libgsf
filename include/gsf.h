@@ -135,10 +135,12 @@ GSF_API bool gsf_is_compatible_version(void);
 /*
  * Creates a new emulator with a specific `frequency` and `flags`.
  * The following flags are defined:
- * - GSF_INFO_ONLY: creates an emulator used only for retrieving tags.
+ * - GSF_INFO_ONLY: creates an emulator used only for retrieving tags and
+ *   other info. If an emulator has been created with this option set, then
+ *   gsf_play and gsf_seek will return immediately (anything else works
+ *   as normally).
  * - GSF_MULTI: creates an emulator that will output audio on multiple
- *   channels instead of a single one.
- * (NOTE: these flags are still unsupported!)
+ *   channels instead of a single one. (this flag is still unsupported)
  */
 GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags);
 
@@ -176,6 +178,8 @@ GSF_API bool gsf_loaded(const GsfEmu *emu);
 /*
  * Generates `size` 16-bit signed stereo samples inside out from an emulator.
  * Generates them in one single channel (I.E. no need to do any mixing).
+ * Note that there is no need to zero out `out`, since the function must
+ * do that anyway.
  */
 GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 
