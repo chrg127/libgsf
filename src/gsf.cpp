@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <optional>
 #include <bit>
+#include <system_error>
 #include <zlib.h>
 #include <tl/expected.hpp>
 #include <mgba/gba/core.h>
@@ -68,7 +69,6 @@ std::optional<int> parse_duration(std::string_view s)
         return std::nullopt;
     std::array<int, 4> numbers = { 0, 0, 0, 0 };
     std::array<int, 4> multipliers = { 60 * 60 * 1000, 60 * 1000, 1000, 1 };
-    bool decimal = false;
     auto parsenum = [&] (auto start, int index) {
         auto i = start;
         while (string::is_digit(s[i]))
@@ -77,10 +77,8 @@ std::optional<int> parse_duration(std::string_view s)
         return i;
     };
     int i = parsenum(s.size() - 1, 3);
-    if (s[i] == '.' || s[i] == ',') {
+    if (s[i] == '.' || s[i] == ',')
         i = parsenum(i-1, 2);
-        decimal = true;
-    }
     if (s[i] == ':')
         i = parsenum(i-1, 1);
     if (s[i] == ':')
@@ -108,7 +106,7 @@ constexpr long millis_to_samples(long millis, int sample_rate, int channels)
     return (secs * sample_rate + frac * sample_rate / 1000) * channels;
 }
 
-GsfError make_err(GsfErrorCode code) { return { .code = code, .from = 1 }; }
+GsfError make_err(GsfErrorCode code) { return { .code = code, .from = GSF_FROM_LIBRARY }; }
 
 
 
@@ -131,21 +129,25 @@ struct Deleter {
 
 GsfReadResult default_read_file(const char *filename, void *, const GsfAllocators *allocators)
 {
-    FILE *file = fopen(filename, "rb");
+    FILE *file = std::fopen(filename, "rb");
     if (!file)
-        return { .buf = nullptr, .size = 0, .err = { .code = 1, .from = 0 } };
-    fseek(file, 0l, SEEK_END);
-    auto size = ftell(file);
-    rewind(file);
+        return { .buf = nullptr, .size = 0, .err = { .code = errno, .from = 0 } };
+    std::fseek(file, 0l, SEEK_END);
+    auto size = std::ftell(file);
+    std::rewind(file);
     unsigned char *buf = allocate<unsigned char>(*allocators, size);
-    if (!buf)
+    if (!buf) {
+        std::fclose(file);
         return { .buf = nullptr, .size = 0, .err = make_err(GSF_ALLOCATION_FAILED) };
-    size_t bytes_read = fread(buf, sizeof(char), size, file);
+    }
+    size_t bytes_read = std::fread(buf, sizeof(char), size, file);
+    std::fclose(file);
     if (bytes_read < (size_t)size) {
         allocators->free(buf, size, allocators->userdata);
-        return { .buf = nullptr, .size = 0, .err = { .code = 1, .from = 0 } };
+        return { .buf = nullptr, .size = 0, .err = {
+            .code = static_cast<int>(std::errc::io_error), .from = 0
+        } };
     }
-    fclose(file);
     return { .buf = buf, .size = size, .err = { .code = 0, .from = 0 } };
 }
 
@@ -170,8 +172,6 @@ Result<ManagedBuffer<u8, Deleter>> read_file(fs::path filepath,
 
 
 /* gsf parsing */
-
-constexpr int MAX_LIBS = 11;
 
 struct Rom {
     u32 entry_point;
@@ -231,15 +231,17 @@ Result<Rom> uncompress_rom(std::span<u8> data, u32 crc, const GsfAllocators &all
 TagMap parse_tags(std::string_view tags, const GsfAllocators &allocators)
 {
     auto result = TagMap(GsfAllocator<std::pair<const String, String>>(allocators));
+    std::string_view last;
     string::split(tags, '\n', [&] (std::string_view tag) {
         auto equals = tag.find('=');
-        auto first = string::trim_view(tag.substr(0, equals));
-        auto second = string::trim_view(tag.substr(equals + 1, tag.size()));
-        // currently lacking multiline variables
-        result.insert({
-            String(first, GsfAllocator<char>(allocators)),
-            String(second, GsfAllocator<char>(allocators))
-        });
+        auto key = string::trim_view(tag.substr(0, equals));
+        auto val = string::trim_view(tag.substr(equals + 1, tag.size()));
+        auto key_str = String(key, GsfAllocator<char>(allocators));
+        if (auto it = result.find(key_str); it != result.end() && key == last)
+            it->second += "\n" + String(val, GsfAllocator<char>(allocators));
+        else
+            result.insert({ key_str, String(val, GsfAllocator<char>(allocators)) });
+        last = key;
     });
     return result;
 }
@@ -283,6 +285,7 @@ std::optional<String> find_lib(std::span<GSFFile> files, int n)
 
 Result<GSFFile> load_file(fs::path filepath, const GsfReader &reader, const GsfAllocators &allocators)
 {
+    constexpr int MAX_LIBS = 11;
     auto parsebuf = [&](ManagedBuffer<u8, Deleter> buf) { return parse(buf.to_span(), allocators); };
     auto files = Vector<GSFFile>(MAX_LIBS, GSFFile{allocators}, GsfAllocator<GSFFile>(allocators));
     if (auto r = read_file(filepath, reader, allocators)
@@ -441,7 +444,7 @@ public:
         if (flags & GSF_INFO_ONLY)
             return { .code = 0, .from = 0 };
         if (num_samples + n < 0 || (!infinite && num_samples + n > max_samples))
-            return { .code = GSF_SEEK_OUT_OF_BOUNDS, .from = 1 };
+            return make_err(GSF_SEEK_OUT_OF_BOUNDS);
         if (n < 0) {
             core->reset(core);
             n = num_samples + n;
@@ -480,7 +483,8 @@ public:
     int sample_rate()     const { return samplerate; }
     long length_samples() const { return max_samples; }
     long default_length() const { return default_len; }
-    bool ended()          const { return infinite ? false : num_samples >= max_samples; }
+    bool is_infinite()    const { return infinite; }
+    bool ended()          const { return !infinite && num_samples >= max_samples; }
     bool loaded_file()    const { return loaded; }
     int num_channels()    const { return NUM_CHANNELS; }
 };
@@ -523,7 +527,7 @@ GSF_API GsfError gsf_new_with_allocators(GsfEmu **out, int sample_rate, int flag
         return emu.error();
     *out = emu.value();
     mLogSetDefaultLogger(&empty_logger);
-    return GSF_NO_ERROR;
+    return { .code = 0, .from = 0 };
 }
 
 GSF_API void gsf_delete(GsfEmu *emu)
@@ -564,7 +568,7 @@ GSF_API GsfError gsf_load_file_with_reader_allocators(GsfEmu *emu,
     if (!f)
         return f.error();
     emu->load(f.value().rom.data, std::move(f.value().tags));
-    return GSF_NO_ERROR;
+    return { .code = 0, .from = 0 };
 }
 
 GSF_API bool gsf_loaded(const GsfEmu *emu)
@@ -611,7 +615,7 @@ GSF_API GsfError gsf_get_tags_with_allocators(const GsfEmu *emu, GsfTags **out,
     tags->volume    = string::to_number<double>(emu->get_tag("volume").value_or("")).value_or(0.0);
     tags->fade      = parse_duration(emu->get_tag("fade").value_or("")).value_or(0);
     *out = tags;
-    return GSF_NO_ERROR;
+    return { .code = 0, .from = 0 };
 }
 
 GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocators)
@@ -631,7 +635,7 @@ GSF_API long gsf_length_samples(GsfEmu *emu)
 
 GSF_API long gsf_tell(const GsfEmu *emu)
 {
-    return samples_to_millis(emu->tell(), emu->sample_rate(), 2);
+    return samples_to_millis(emu->tell(), emu->sample_rate(), emu->num_channels());
 }
 
 GSF_API long gsf_tell_samples(const GsfEmu *emu)
@@ -641,7 +645,7 @@ GSF_API long gsf_tell_samples(const GsfEmu *emu)
 
 GSF_API GsfError gsf_seek(GsfEmu *emu, long millis)
 {
-    return gsf_seek_samples(emu, millis_to_samples(millis, emu->sample_rate(), 2));
+    return gsf_seek_samples(emu, millis_to_samples(millis, emu->sample_rate(), emu->num_channels()));
 }
 
 GSF_API GsfError gsf_seek_samples(GsfEmu *emu, long samples)
@@ -657,6 +661,11 @@ GSF_API void gsf_set_default_length(GsfEmu *emu, long length)
 GSF_API long gsf_default_length(const GsfEmu *emu)
 {
     return emu->default_length();
+}
+
+GSF_API bool gsf_infinite(GsfEmu *emu)
+{
+    return emu->is_infinite();
 }
 
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite)

@@ -39,10 +39,6 @@ extern "C" {
  */
 typedef struct GsfEmu GsfEmu;
 
-/* read/delete functions for gsf_load_file_custom, see below. */
-// typedef int (*GsfReadFn)(void *userdata, const char *filename, unsigned char **buf, long *size);
-// typedef void (*GsfDeleteFileDataFn)(unsigned char *buf);
-
 /* Flags passed to gsf_new, see below. */
 typedef enum GsfFlags {
     GSF_INFO_ONLY   = 1 << 1,
@@ -65,16 +61,27 @@ typedef struct GsfTags {
      */
     double volume;
     int fade;
+    // Reserved values.
+    int r1, r2, r3, r4;
+    const char *r5, *r6, *r7, *r8;
+    double r9, r10, r11, r12;
 } GsfTags;
 
-/* Custom allocator support, see below. */
+/*
+ * This struct is used to provide custom allocator support for functions that
+ * support it. The `malloc` function allocates memory; then `free` functions
+ * deallocates it. An additional parameter `userdata` is passed to these
+ * functions for custom use.
+ * There exists a default for this struct. This default uses the malloc and
+ * free functions from the C standard library and doesn't touch `userdata`.
+ */
 typedef struct GsfAllocators {
     void *(*malloc)(size_t size, void *userdata);
     void  (*free)(void *ptr, size_t size, void *userdata);
     void *userdata;
 } GsfAllocators;
 
-/* Errors returned by the library. */
+/* Errors returned by the library, see below. */
 typedef enum GsfErrorCode {
     GSF_INVALID_FILE_SIZE = 1,
     GSF_ALLOCATION_FAILED,
@@ -85,25 +92,27 @@ typedef enum GsfErrorCode {
     GSF_SEEK_OUT_OF_BOUNDS,
 } GsfErrorCode;
 
+/* Where errors can come from, see below. */
+typedef enum GsfErrorFrom {
+    GSF_FROM_SYSTEM,
+    GSF_FROM_LIBRARY,
+} GsfErrorFrom;
+
 /*
  * How error handling for this library works:
  * This struct is returned by any function that could potentially error-out.
  * `code` is the error code returned by the function. If it's 0, it's guaranteed
  * that the function returned success, regardless of `from`'s value.
- * `from` represent where we got the error code. Fortunately, there are only
- * two values for it: 0, meaning it's a system error, and 1, meaning it's a
- * library-specific error.
+ * `from` represent where we got the error code. There are only two
+ * possibilities for it: either it comes from the system (for example from
+ * reading a file) or it's a library specific error. If it's the latter, `code`
+ * is one of the values from the GsfErrorCode enum.
  * If you just want to check for success, just check if <expr>.code == 0.
  */
 typedef struct GsfError {
     int code;
     int from;
 } GsfError;
-
-static const GsfError GSF_NO_ERROR = {
-    .code = 0,
-    .from = 0,
-};
 
 /* Result of reading a file, see below. */
 typedef struct GsfReadResult {
@@ -113,10 +122,10 @@ typedef struct GsfReadResult {
 } GsfReadResult;
 
 /*
- * This struct is used on load_file to customize how reading should be done.
+ * This struct is used on file loading to customize how reading should be done.
  * The `read` function reads a file with the given `filename` and returns a
  * buffer (pointer+size) and an error that tells us if reading was successful.
- * The error should usually be get from the OS.
+ * The error should usually be taken from the OS.
  * The `delete_data` function delete the file data allocated by `read`.
  */
 typedef struct GsfReader {
@@ -141,30 +150,24 @@ GSF_API bool gsf_is_compatible_version(void);
  *   as normally).
  * - GSF_MULTI: creates an emulator that will output audio on multiple
  *   channels instead of a single one. (this flag is still unsupported)
+ * `gsf_new_with_allocators` behaves the same as `gsf_new`, but takes a
+ * parameter `allocators` that the functions will use to allocate memory.
  */
 GSF_API GsfError gsf_new(GsfEmu **out, int sample_rate, int flags);
+GSF_API GsfError gsf_new_with_allocators(GsfEmu **out, int sample_rate, int flags,
+    GsfAllocators *allocators);
 
 /* Deletes an emulator object. */
 GSF_API void gsf_delete(GsfEmu *emu);
-
-/*
- * Same as above, but takes a parameter `allocators` that the functions will use
- * to allocate memory.
- */
-GSF_API GsfError gsf_new_with_allocators(GsfEmu **out, int sample_rate, int flags,
-    GsfAllocators *allocators);
 GSF_API void gsf_delete_with_allocators(GsfEmu *emu, GsfAllocators *allocators);
 
 /*
  * Loads a file and any corresponding library files inside an emulator.
  * `filename` is assumed to be a valid file path.
+ * The other three functions lets you specify a `reader` (i.e. how to read
+ * a file) and `allocators` (how to allocate memory).
  */
 GSF_API GsfError gsf_load_file(GsfEmu *emu, const char *filename);
-
-/*
- * Same as above, but with additional parameters `reader` and `allocators`
- * to specify how to read a file and how to allocate memory.
- */
 GSF_API GsfError gsf_load_file_with_reader(GsfEmu *emu, const char *filename,
     GsfReader *reader);
 GSF_API GsfError gsf_load_file_with_allocators(GsfEmu *emu,
@@ -183,19 +186,21 @@ GSF_API bool gsf_loaded(const GsfEmu *emu);
  */
 GSF_API void gsf_play(GsfEmu *emu, short *out, long size);
 
-/* Checks if an emulator has finished playing a loaded file. */
+/* Checks if an emulator has finished playing a loaded file.
+ * Functionally equivalent to:
+ *     `!gsf_infinite(emu) && gsf_tell(emu) >= gsf_length(emu)`
+ */
 GSF_API bool gsf_ended(const GsfEmu *emu);
 
-/* Returns the tags found from a loaded GSF file. */
+/* Returns the tags found from a loaded GSF file. Supports custom allocation. */
 GSF_API GsfError gsf_get_tags(const GsfEmu *emu, GsfTags **out);
+GSF_API GsfError gsf_get_tags_with_allocators(const GsfEmu *emu, GsfTags **out,
+    GsfAllocators *allocators);
 
 /* Frees tags taken from `gsf_get_tags`. */
 GSF_API void gsf_free_tags(GsfTags *tags);
-
-/* Same pair of functions as the above two, but with allocator API. */
-GSF_API GsfError gsf_get_tags_with_allocators(const GsfEmu *emu, GsfTags **out,
+GSF_API void gsf_free_tags_with_allocators(GsfTags *tags,
     GsfAllocators *allocators);
-GSF_API void gsf_free_tags_with_allocators(GsfTags *tags, GsfAllocators *allocators);
 
 /*
  * Gets the length of the file, regardless of whether gsf_infinite
@@ -235,23 +240,15 @@ GSF_API long gsf_default_length(const GsfEmu *emu);
 GSF_API void gsf_set_default_length(GsfEmu *emu, long length);
 
 /*
- * Sets whether playing should be infinite for the currently playing file.
+ * Whether playback continues infinitely, or stops at the length value
+ * (which itself depends on tags and default length value).
  * If set to `false` while playing, and the currently playing file is
- * theoretically already at the end, then playback will stop and `gsf_ended`
- * will immediately return `true`.
+ * already past the end, then playback will stop and `gsf_ended` will
+ * immediately return `true`.
  * If set to `true` while playing, playback may be resumed.
  */
+GSF_API bool gsf_infinite(GsfEmu *emu);
 GSF_API void gsf_set_infinite(GsfEmu *emu, bool infinite);
-
-/*
- * Part of the allocation API.
- * This functions sets two allocators for use inside the library. The `malloc`
- * function allocates memory; then `free` functions deallocates it. An additional
- * parameter `userdata` is passed to these functions for custom use.
- * NOTE: this API is still a WIP, since not everything will pass through these
- * two functions.
- */
-GSF_API void gsf_set_allocators(GsfAllocators *allocators);
 
 /* Returns the sample rate set at creation. */
 GSF_API int gsf_sample_rate(GsfEmu *emu);

@@ -1,26 +1,3 @@
-/*
- * The missing string function from the standard library.
- *
- * This library implements the following functions:
- *
- *     - split(): split a string into multiple strings. Usually these strings
- *       are collected into an std::vector; if you don't want that, use the
- *       version that takes a lambda.
- *     - split_lines(): splits a single string in multiple lines, using a
- *       number that describes the maximum column of each line. It tries
- *       doing the operation using words;
- *     - trim(): removes space on the start and end of a string;
- *     - trim_in_place(): same as above, but in place;
- *     - to_number(): converts a string to number, returns an std::optional
- *     - from_number(): converts a number to string. Made because stdlib doesn't
- *       allow different string types for its std::to_string.
- *
- * All these functions work on both std::string and std::string_view (and
- * other string types too). Some of these (split(), trim()) have a
- * version for std::string_view (split_view(), trim_view()) as helpers
- * (otherwise you'd have to specify those in template parameters.
- */
-
 #pragma once
 
 #include <algorithm>
@@ -35,12 +12,16 @@
 
 namespace string {
 
+/*
+ * Replacements for isspace, isalpha, isdigit and tolower. These exist because
+ * the versions from the C standard library use locales.
+ */
 inline bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
 inline bool is_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 inline bool is_digit(char c) { return c >= '0' && c <= '9'; }
-
 template <typename T> T to_lower(T c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 
+/* Splits a string into multiple strings, lambda version. */
 template <typename From = std::string>
 inline void split(const From &s, char delim, auto &&fn)
 {
@@ -52,6 +33,7 @@ inline void split(const From &s, char delim, auto &&fn)
     }
 }
 
+/* Splits a string into multiple strings, vector version. */
 template <typename From = std::string, typename To = std::string>
 inline std::vector<To> split(const From &s, char delim = ',')
 {
@@ -62,11 +44,17 @@ inline std::vector<To> split(const From &s, char delim = ',')
     return res;
 }
 
+/* Helper for split() with std::string_view. */
 inline std::vector<std::string_view> split_view(std::string_view s, char delim = ',')
 {
     return split<std::string_view, std::string_view>(s, delim);
 }
 
+/*
+ * Splits a single string in multiple lines of maximum `col` width. Tries to
+ * split at word boundary, where a word is simply a part of a string delimited
+ * by spaces.
+ */
 template <typename From = std::string, typename To = std::string>
 inline std::vector<To> split_lines(const From &s, std::size_t col)
 {
@@ -82,6 +70,7 @@ inline std::vector<To> split_lines(const From &s, std::size_t col)
     return result;
 }
 
+/* Removes space on start and end of a string, pure version. */
 template <typename From = std::string, typename To = std::string>
 inline To trim(const From &s)
 {
@@ -90,8 +79,10 @@ inline To trim(const From &s)
     return {i, j};
 }
 
+/* Helper for trim() with std::string_view. */
 inline std::string_view trim_view(std::string_view s) { return trim<std::string_view, std::string_view>(s); }
 
+/* Removes space on start and end of a string, in-place version. */
 template <typename T = std::string>
 inline void trim_in_place(T &s)
 {
@@ -100,6 +91,8 @@ inline void trim_in_place(T &s)
     auto i = std::find_if_not(s.begin(), s.end(), is_space);
     s.erase(s.begin(), i);
 }
+
+namespace detail {
 
 template <typename T>
 std::from_chars_result from_chars_double(const char *first, const char *, double &value)
@@ -112,6 +105,12 @@ std::from_chars_result from_chars_double(const char *first, const char *, double
     return res;
 }
 
+} // namespace detail
+
+/*
+ * Converts a string to number using std::from_chars and returning the result
+ * in an std::optional. Works for integer and floating-point numbers.
+ */
 template <typename T = int, typename TStr = std::string>
 inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
     requires std::is_integral_v<T> || std::is_floating_point_v<T>
@@ -122,7 +121,7 @@ inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
         if constexpr(std::is_floating_point_v<T>)
             // GCC version < 11 doesn't have std::from_chars<double>, and this version
             // is still installed in some modern distros (debian stable, WSL ubuntu)
-            res = from_chars_double<T>(start, end, value);
+            res = detail::from_chars_double<T>(start, end, value);
         else
             res = std::from_chars(start, end, value, base);
         if (res.ec != std::errc() || res.ptr != end)
@@ -135,6 +134,7 @@ inline std::optional<T> to_number(const TStr &str, unsigned base = 10)
         return helper(str.data(), str.data() + str.size(), base);
 }
 
+/* Converts a number to string, using std::to_chars. */
 template <typename TStr = std::string, typename T = int>
 inline TStr from_number(const T &n, int base = 10)
 {
@@ -145,6 +145,7 @@ inline TStr from_number(const T &n, int base = 10)
     return str;
 }
 
+/* Insensitive comparison of two string. */
 template <typename T>
 bool iequals(const T& a, const T& b)
 {
