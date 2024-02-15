@@ -436,10 +436,12 @@ public:
         }
     }
 
-    void skip(long n)
+    GsfError skip(long n)
     {
         if (flags & GSF_INFO_ONLY)
-            return;
+            return { .code = 0, .from = 0 };
+        if (num_samples + n < 0 || (!infinite && num_samples + n > max_samples))
+            return { .code = GSF_SEEK_OUT_OF_BOUNDS, .from = 1 };
         if (n < 0) {
             core->reset(core);
             n = num_samples + n;
@@ -454,6 +456,7 @@ public:
             took += to_take;
             num_samples += to_take;
         }
+        return { .code = 0, .from = 0 };
     }
 
     std::optional<std::string_view> get_tag(const String &s) const
@@ -636,14 +639,14 @@ GSF_API long gsf_tell_samples(const GsfEmu *emu)
     return emu->tell();
 }
 
-GSF_API void gsf_seek(GsfEmu *emu, long millis)
+GSF_API GsfError gsf_seek(GsfEmu *emu, long millis)
 {
-    gsf_seek_samples(emu, millis_to_samples(millis, emu->sample_rate(), 2));
+    return gsf_seek_samples(emu, millis_to_samples(millis, emu->sample_rate(), 2));
 }
 
-GSF_API void gsf_seek_samples(GsfEmu *emu, long samples)
+GSF_API GsfError gsf_seek_samples(GsfEmu *emu, long samples)
 {
-    emu->skip(samples);
+    return emu->skip(samples - emu->tell());
 }
 
 GSF_API void gsf_set_default_length(GsfEmu *emu, long length)

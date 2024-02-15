@@ -82,14 +82,14 @@ typedef enum GsfErrorCode {
     GSF_INVALID_SECTION_LENGTH,
     GSF_INVALID_CRC,
     GSF_UNCOMPRESS_ERROR,
+    GSF_SEEK_OUT_OF_BOUNDS,
 } GsfErrorCode;
 
 /*
  * How error handling for this library works:
  * This struct is returned by any function that could potentially error-out.
- * `code` represent an error code returned by the function. If it's 0, it's
- * guaranteed that the function returned success, whatever the value of `from`
- * is.
+ * `code` is the error code returned by the function. If it's 0, it's guaranteed
+ * that the function returned success, regardless of `from`'s value.
  * `from` represent where we got the error code. Fortunately, there are only
  * two values for it: 0, meaning it's a system error, and 1, meaning it's a
  * library-specific error.
@@ -219,9 +219,11 @@ GSF_API long gsf_tell_samples(const GsfEmu *emu);
 /*
  * Sets the currently playing file to a specified position in milliseconds or
  * in samples. Note that seeking backwards can be slow.
+ * Guaranteed to return the error GSF_SEEK_OUT_OF_BOUNDS if the seek position
+ * is out of bounds.
  */
-GSF_API void gsf_seek(GsfEmu *emu, long millis);
-GSF_API void gsf_seek_samples(GsfEmu *emu, long samples);
+GSF_API GsfError gsf_seek(GsfEmu *emu, long millis);
+GSF_API GsfError gsf_seek_samples(GsfEmu *emu, long samples);
 
 /*
  * Gets and sets the default length when parsing a file.

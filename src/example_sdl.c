@@ -193,16 +193,22 @@ int main(int argc, char *argv[])
         char c = 1;
         if (get_input(&c)) {
             switch (c) {
-            case 'l':
+            case 'l': {
                 SDL_LockAudioDevice(dev);
-                gsf_seek(emu, 1000);
+                GsfError err = gsf_seek(emu, gsf_tell(emu) + 1000);
+                if (err.code != 0)
+                    printf("seek error: %d, %d\n", err.code, err.from);
                 SDL_UnlockAudioDevice(dev);
                 break;
-            case 'h':
+            }
+            case 'h': {
                 SDL_LockAudioDevice(dev);
-                gsf_seek(emu, -1000);
+                GsfError err = gsf_seek(emu, gsf_tell(emu) - 1000);
+                if (err.code != 0)
+                    printf("seek error: %d, %d\n", err.code, err.from);
                 SDL_UnlockAudioDevice(dev);
                 break;
+            }
             }
         }
     }
