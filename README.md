@@ -1,5 +1,7 @@
 # libgsf
 
+*Warning*: this repository has been migrated to [codeberg](https://codeberg.org/chrg/libgsf). You should join codeberg too (or any one of the github alternatives).
+
 libgsf is a library for reading and playing GSF (GBA Sound File) and MiniGSF
 files. At the time of writing, it supports only the very simple stuff:
 
